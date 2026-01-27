@@ -1,0 +1,57 @@
+name: local-test
+description: "Local test profile for development and testing"
+
+connection:
+  host: "localhost"
+  port: 22
+  user: "root"
+  timeout: 10
+
+commands:
+  # Host commands (default) - run on controller
+  hello_host:
+    description: "Simple hello from controller"
+    command: "echo 'Hello from controller!' && hostname && date"
+    timeout: 10
+
+  check_environment:
+    description: "Check local Python environment"
+    command: "python3 --version && pip3 list | head -20"
+    timeout: 30
+
+  list_files:
+    description: "List files in specified directory"
+    command: "ls -la {directory}"
+    timeout: 10
+
+  create_report:
+    description: "Create a local test report"
+    command: "echo 'Test Report for {test_name}' > /tmp/ecr_report.txt && echo 'Generated: '$(date) >> /tmp/ecr_report.txt && cat /tmp/ecr_report.txt"
+    timeout: 30
+
+  # Target commands - run via SSH (for testing SSH connectivity)
+  target_info:
+    description: "Get target system info via SSH"
+    command: "uname -a && uptime"
+    run: target
+    timeout: 30
+
+  target_disk_usage:
+    description: "Check disk usage on target"
+    command: "df -h /"
+    run: target
+    timeout: 10
+
+background_collectors:
+  host_load:
+    description: "Monitor host load"
+    command: "cat /proc/loadavg"
+    run: host
+    interval: 10
+    timeout: 5
+
+  target_memory:
+    command: "free -m | grep Mem"
+    run: target
+    interval: 15
+    timeout: 5

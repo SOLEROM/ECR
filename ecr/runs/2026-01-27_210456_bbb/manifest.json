@@ -1,0 +1,12 @@
+{
+  "run_id": "2026-01-27_210456_bbb",
+  "name": "bbb",
+  "profile_name": "aaa",
+  "status": "completed",
+  "created_at": "2026-01-27T19:04:56.651081+00:00",
+  "started_at": "2026-01-27T19:05:17.693230+00:00",
+  "completed_at": "2026-01-27T19:06:45.636099+00:00",
+  "parameters": {},
+  "artifacts": [],
+  "notes": ""
+}

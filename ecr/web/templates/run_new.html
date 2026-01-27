@@ -1,0 +1,104 @@
+{% extends "base.html" %}
+
+{% block title %}New Run{% endblock %}
+
+{% block content %}
+<div class="page-header">
+    <h1 class="page-title">Create New Run</h1>
+</div>
+
+<form method="POST" action="{{ url_for('web.run_new') }}" id="run-form">
+    <div class="grid grid-2 mb-24">
+        <div class="card">
+            <div class="card-header">
+                <h3 class="card-title">Basic Configuration</h3>
+            </div>
+            <div class="card-body">
+                <div class="form-group">
+                    <label class="form-label">Target Profile *</label>
+                    <select name="profile_name" class="form-select" id="profile-select" required onchange="loadProfile()">
+                        <option value="">Select a profile...</option>
+                        {% for p in profiles %}
+                        <option value="{{ p }}" {% if p == selected_profile %}selected{% endif %}>{{ p }}</option>
+                        {% endfor %}
+                    </select>
+                </div>
+                
+                <div class="form-group">
+                    <label class="form-label">Run Name (optional)</label>
+                    <input type="text" name="name" class="form-input" placeholder="my-experiment">
+                    <div class="text-muted" style="font-size: 12px; margin-top: 4px;">
+                        Leave empty for auto-generated timestamp name
+                    </div>
+                </div>
+            </div>
+        </div>
+
+        <div class="card">
+            <div class="card-header">
+                <h3 class="card-title">Parameters</h3>
+                <button type="button" class="btn btn-sm" onclick="addParameter()">+ Add</button>
+            </div>
+            <div class="card-body" id="parameters-container">
+                <div class="text-muted mb-8" style="font-size: 12px;">
+                    Parameters substitute <code>{name}</code> placeholders in commands.
+                </div>
+                <div id="parameters-list">
+                    <!-- Parameters will be added here -->
+                </div>
+            </div>
+        </div>
+    </div>
+
+    {% if profile_data %}
+    <div class="card mb-24">
+        <div class="card-header">
+            <h3 class="card-title">Available Commands</h3>
+            <span class="badge badge-info">{{ profile_data.commands_list|length }}</span>
+        </div>
+        <div class="card-body">
+            <div class="text-muted mb-8" style="font-size: 12px;">
+                These commands will be available to run on-demand during the experiment.
+            </div>
+            <div class="flex gap-8" style="flex-wrap: wrap;">
+                {% for cmd_name in profile_data.commands_list %}
+                    {% set cmd = profile_data.commands[cmd_name] %}
+                    <div class="badge {% if cmd.run == 'target' %}badge-warning{% else %}badge-success{% endif %}" style="padding: 8px 12px;">
+                        {{ cmd_name }}
+                        <span class="text-muted" style="font-size: 10px;">({{ cmd.run or 'host' }})</span>
+                    </div>
+                {% endfor %}
+            </div>
+        </div>
+    </div>
+    {% endif %}
+
+    <div class="flex gap-8">
+        <button type="submit" class="btn btn-primary">Create Run</button>
+        <a href="{{ url_for('web.dashboard') }}" class="btn">Cancel</a>
+    </div>
+</form>
+
+<script>
+let profileData = {{ profile_data | tojson | safe if profile_data else 'null' }};
+
+function loadProfile() {
+    const profileName = document.getElementById('profile-select').value;
+    if (profileName) {
+        window.location.href = `{{ url_for('web.run_new') }}?profile=${profileName}`;
+    }
+}
+
+function addParameter(key = '', value = '') {
+    const container = document.getElementById('parameters-list');
+    const div = document.createElement('div');
+    div.className = 'flex gap-8 mb-8';
+    div.innerHTML = `
+        <input type="text" name="param_key[]" class="form-input" placeholder="name" value="${key}" style="width: 150px;">
+        <input type="text" name="param_value[]" class="form-input" placeholder="value" value="${value}">
+        <button type="button" class="btn btn-sm btn-danger" onclick="this.parentElement.remove()">×</button>
+    `;
+    container.appendChild(div);
+}
+</script>
+{% endblock %}

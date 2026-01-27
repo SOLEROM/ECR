@@ -1,0 +1,85 @@
+{% extends "base.html" %}
+
+{% block title %}Profiles{% endblock %}
+
+{% block content %}
+<div class="page-header">
+    <h1 class="page-title">Target Profiles</h1>
+    <a href="{{ url_for('web.profile_new') }}" class="btn btn-primary">
+        <svg width="16" height="16" viewBox="0 0 24 24" fill="currentColor">
+            <path d="M12 4v16m-8-8h16" stroke="currentColor" stroke-width="2" stroke-linecap="round"/>
+        </svg>
+        New Profile
+    </a>
+</div>
+
+{% if profiles %}
+<div class="card">
+    <table class="table">
+        <thead>
+            <tr>
+                <th>Name</th>
+                <th>Host</th>
+                <th>Actions</th>
+                <th>Collectors</th>
+                <th></th>
+            </tr>
+        </thead>
+        <tbody>
+            {% for profile in profiles %}
+            <tr>
+                <td>
+                    <a href="{{ url_for('web.profile_view', name=profile.name) }}">
+                        <strong>{{ profile.name }}</strong>
+                    </a>
+                    {% if profile.description %}
+                    <div class="text-secondary" style="font-size: 12px;">{{ profile.description[:60] }}{% if profile.description|length > 60 %}...{% endif %}</div>
+                    {% endif %}
+                </td>
+                <td>
+                    <code>{{ profile.host }}</code>
+                </td>
+                <td>
+                    <span class="badge badge-info">{{ profile.commands_count }} commands</span>
+                </td>
+                <td>
+                    <span class="badge badge-purple">{{ profile.collectors_count }} collectors</span>
+                </td>
+                <td>
+                    <div class="flex gap-8">
+                        <a href="{{ url_for('web.run_new', profile=profile.name) }}" class="btn btn-sm btn-primary">New Run</a>
+                        <a href="{{ url_for('web.profile_edit', name=profile.name) }}" class="btn btn-sm">Edit</a>
+                        <button class="btn btn-sm btn-danger" onclick="deleteProfile('{{ profile.name }}')">Delete</button>
+                    </div>
+                </td>
+            </tr>
+            {% endfor %}
+        </tbody>
+    </table>
+</div>
+{% else %}
+<div class="card">
+    <div class="empty-state">
+        <svg viewBox="0 0 24 24" xmlns="http://www.w3.org/2000/svg">
+            <path d="M20 6h-8l-2-2H4c-1.1 0-1.99.9-1.99 2L2 18c0 1.1.9 2 2 2h16c1.1 0 2-.9 2-2V8c0-1.1-.9-2-2-2zm0 12H4V8h16v10z"/>
+        </svg>
+        <h3>No profiles yet</h3>
+        <p class="text-muted">Create a target profile to define your embedded device connection and actions.</p>
+        <a href="{{ url_for('web.profile_new') }}" class="btn btn-primary mt-16">Create Profile</a>
+    </div>
+</div>
+{% endif %}
+
+<script>
+async function deleteProfile(name) {
+    if (!confirm(`Delete profile "${name}"? This cannot be undone.`)) return;
+    
+    const result = await apiCall(`/api/profiles/${name}`, 'DELETE');
+    if (result.success) {
+        location.reload();
+    } else {
+        alert('Failed to delete profile');
+    }
+}
+</script>
+{% endblock %}

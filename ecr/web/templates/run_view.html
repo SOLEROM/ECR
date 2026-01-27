@@ -1,0 +1,366 @@
+{% extends "base.html" %}
+
+{% block title %}{{ ctx.manifest.name }}{% endblock %}
+
+{% block content %}
+<div class="page-header">
+    <div>
+        <h1 class="page-title">{{ ctx.manifest.name }}</h1>
+        <div class="flex gap-8 items-center mt-8">
+            <span class="badge badge-info">{{ ctx.manifest.profile_name }}</span>
+            {% if ctx.manifest.status == 'completed' %}
+                <span class="badge badge-success">✓ Completed</span>
+            {% elif ctx.manifest.status == 'running' %}
+                <span class="badge badge-info">● Running</span>
+            {% elif ctx.manifest.status == 'paused' %}
+                <span class="badge badge-warning">⏸ Paused</span>
+            {% elif ctx.manifest.status == 'interrupted' %}
+                <span class="badge badge-danger">⚠ Interrupted</span>
+            {% elif ctx.manifest.status == 'created' %}
+                <span class="badge">○ Created</span>
+            {% else %}
+                <span class="badge">{{ ctx.manifest.status }}</span>
+            {% endif %}
+        </div>
+    </div>
+    <div class="flex gap-8">
+        {% if ctx.manifest.status in ['created', 'paused', 'interrupted'] %}
+        <button class="btn btn-primary" onclick="startRun()">
+            {% if ctx.manifest.status == 'created' %}▶ Start{% else %}▶ Resume{% endif %}
+        </button>
+        {% endif %}
+        {% if ctx.manifest.status == 'running' %}
+        <button class="btn" onclick="pauseRun()">⏸ Pause</button>
+        <button class="btn btn-primary" onclick="completeRun()">✓ Complete</button>
+        {% endif %}
+        <a href="{{ url_for('web.run_export', run_id=ctx.run_id) }}" class="btn">📦 Export</a>
+        <button class="btn btn-danger" onclick="deleteRun()">🗑 Delete</button>
+    </div>
+</div>
+
+<div class="grid grid-3 mb-24">
+    <!-- Info Card -->
+    <div class="card">
+        <div class="card-header">
+            <h3 class="card-title">Run Info</h3>
+        </div>
+        <div class="card-body">
+            <table class="table">
+                <tr>
+                    <td class="text-secondary">Created</td>
+                    <td>{{ ctx.manifest.created_at[:19].replace('T', ' ') }}</td>
+                </tr>
+                {% if ctx.manifest.started_at %}
+                <tr>
+                    <td class="text-secondary">Started</td>
+                    <td>{{ ctx.manifest.started_at[:19].replace('T', ' ') }}</td>
+                </tr>
+                {% endif %}
+                {% if ctx.manifest.completed_at %}
+                <tr>
+                    <td class="text-secondary">Completed</td>
+                    <td>{{ ctx.manifest.completed_at[:19].replace('T', ' ') }}</td>
+                </tr>
+                {% endif %}
+                <tr>
+                    <td class="text-secondary">Run ID</td>
+                    <td><code style="font-size: 11px;">{{ ctx.run_id }}</code></td>
+                </tr>
+            </table>
+        </div>
+    </div>
+
+    <!-- Parameters Card -->
+    <div class="card">
+        <div class="card-header">
+            <h3 class="card-title">Parameters</h3>
+            {% if ctx.manifest.status == 'running' %}
+            <button class="btn btn-sm" onclick="showAddParam()">+ Add</button>
+            {% endif %}
+        </div>
+        <div class="card-body">
+            {% if ctx.manifest.parameters %}
+            <table class="table">
+                {% for key, value in ctx.manifest.parameters.items() %}
+                <tr>
+                    <td class="text-secondary">{{ key }}</td>
+                    <td><code>{{ value }}</code></td>
+                </tr>
+                {% endfor %}
+            </table>
+            {% else %}
+            <p class="text-muted">No parameters set.</p>
+            {% endif %}
+            
+            <div id="add-param-form" style="display: none;" class="mt-16">
+                <div class="flex gap-8">
+                    <input type="text" id="param-name" class="form-input" placeholder="name" style="width: 100px;">
+                    <input type="text" id="param-value" class="form-input" placeholder="value">
+                    <button class="btn btn-sm btn-primary" onclick="addParameter()">Add</button>
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <!-- Artifacts Card -->
+    <div class="card">
+        <div class="card-header">
+            <h3 class="card-title">Artifacts</h3>
+            <span class="badge">{{ ctx.manifest.artifacts|length }}</span>
+        </div>
+        <div class="card-body" style="max-height: 200px; overflow-y: auto;">
+            {% if ctx.manifest.artifacts %}
+            {% for artifact in ctx.manifest.artifacts %}
+            <div class="mb-8">
+                <a href="{{ url_for('web.run_artifact', run_id=ctx.run_id, artifact_path=artifact.local_path) }}" class="text-secondary" style="font-size: 12px;">
+                    📄 {{ artifact.local_path.split('/')[-1] }}
+                </a>
+                <div class="text-muted" style="font-size: 11px;">from {{ artifact.remote_path }}</div>
+            </div>
+            {% endfor %}
+            {% else %}
+            <p class="text-muted">No artifacts collected yet.</p>
+            {% endif %}
+        </div>
+    </div>
+</div>
+
+<div class="grid grid-2 mb-24">
+    <!-- Commands Card -->
+    <div class="card">
+        <div class="card-header">
+            <h3 class="card-title">Commands</h3>
+            <span class="badge badge-info">{{ ctx.profile.commands|length }}</span>
+        </div>
+        <div class="card-body">
+            {% for name, cmd in ctx.profile.commands.items() %}
+            <div class="flex justify-between items-center mb-12" style="padding-bottom: 12px; border-bottom: 1px solid var(--border-color);">
+                <div>
+                    <strong>{{ name }}</strong>
+                    {% if cmd.run == 'target' %}
+                    <span class="badge badge-warning" style="margin-left: 8px;">target</span>
+                    {% else %}
+                    <span class="badge badge-success" style="margin-left: 8px;">host</span>
+                    {% endif %}
+                    {% if cmd.description %}
+                    <div class="text-muted" style="font-size: 12px;">{{ cmd.description }}</div>
+                    {% endif %}
+                </div>
+                {% if ctx.manifest.status == 'running' %}
+                <button class="btn btn-sm btn-primary" onclick="executeCommand('{{ name }}')">Run</button>
+                {% endif %}
+            </div>
+            {% endfor %}
+        </div>
+    </div>
+
+    <!-- Background Collectors Card -->
+    <div class="card">
+        <div class="card-header">
+            <h3 class="card-title">Background Collectors</h3>
+        </div>
+        <div class="card-body">
+            {% if ctx.profile.background_collectors %}
+            {% for name, coll in ctx.profile.background_collectors.items() %}
+            <div class="flex justify-between items-center mb-12">
+                <div>
+                    <strong>{{ name }}</strong>
+                    {% if coll.run == 'target' %}
+                    <span class="badge badge-warning" style="margin-left: 8px;">target</span>
+                    {% else %}
+                    <span class="badge badge-success" style="margin-left: 8px;">host</span>
+                    {% endif %}
+                    <div class="text-muted" style="font-size: 12px;">
+                        every {{ coll.interval }}s
+                    </div>
+                </div>
+                <div class="flex gap-8">
+                    {% if name in active_collectors %}
+                    <span class="badge badge-success">● Active</span>
+                    {% if ctx.manifest.status == 'running' %}
+                    <button class="btn btn-sm btn-danger" onclick="stopCollector('{{ name }}')">Stop</button>
+                    {% endif %}
+                    {% else %}
+                    <span class="badge">○ Stopped</span>
+                    {% if ctx.manifest.status == 'running' %}
+                    <button class="btn btn-sm btn-primary" onclick="startCollector('{{ name }}')">Start</button>
+                    {% endif %}
+                    {% endif %}
+                </div>
+            </div>
+            {% endfor %}
+            {% else %}
+            <p class="text-muted">No background collectors defined in profile.</p>
+            {% endif %}
+        </div>
+    </div>
+</div>
+
+<!-- Notes -->
+<div class="card mb-24">
+    <div class="card-header">
+        <h3 class="card-title">Add Note</h3>
+    </div>
+    <div class="card-body">
+        <div class="flex gap-8">
+            <input type="text" id="note-input" class="form-input" placeholder="Enter a note about this experiment...">
+            <button class="btn btn-primary" onclick="addNote()">Add Note</button>
+        </div>
+    </div>
+</div>
+
+<!-- Event Timeline -->
+<div class="card">
+    <div class="card-header">
+        <h3 class="card-title">Event Timeline</h3>
+        <span class="badge" id="event-count">{{ events|length }} events</span>
+    </div>
+    <div class="card-body">
+        <div class="timeline" id="events-timeline">
+            {% for event in events|reverse %}
+            <div class="timeline-item {% if 'completed' in event.type or 'pulled' in event.type %}success{% elif 'failed' in event.type or 'error' in event.type %}error{% elif 'started' in event.type %}info{% endif %}">
+                <div class="timeline-time">{{ event.timestamp[:19].replace('T', ' ') }}</div>
+                <div class="timeline-content">
+                    <div class="timeline-type">{{ event.type | upper | replace('_', ' ') }}</div>
+                    {% if event.data %}
+                    <details class="event-details">
+                        <summary>Details</summary>
+                        <pre style="font-size: 11px; margin-top: 8px;">{{ event.data | tojson(indent=2) }}</pre>
+                    </details>
+                    {% endif %}
+                </div>
+            </div>
+            {% endfor %}
+        </div>
+    </div>
+</div>
+
+<script>
+const runId = '{{ ctx.run_id }}';
+let lastSeq = {{ events[-1].seq if events else 0 }};
+
+// Run control
+async function startRun() {
+    const result = await apiCall(`/api/runs/${runId}/start`, 'POST');
+    if (result.success) location.reload();
+    else alert('Failed to start run: ' + (result.error || 'Unknown error'));
+}
+
+async function pauseRun() {
+    const result = await apiCall(`/api/runs/${runId}/pause`, 'POST');
+    if (result.success) location.reload();
+}
+
+async function completeRun() {
+    if (!confirm('Complete this run? This will stop all collectors and close the connection.')) return;
+    const result = await apiCall(`/api/runs/${runId}/complete`, 'POST');
+    if (result.success) location.reload();
+}
+
+async function deleteRun() {
+    if (!confirm('Delete this run? This cannot be undone.')) return;
+    const result = await apiCall(`/api/runs/${runId}`, 'DELETE');
+    if (result.success) window.location.href = '{{ url_for("web.dashboard") }}';
+}
+
+// Commands
+async function executeCommand(commandName) {
+    const btn = event.target;
+    btn.disabled = true;
+    btn.textContent = 'Running...';
+    
+    const result = await apiCall(`/api/runs/${runId}/command`, 'POST', { command: commandName });
+    
+    btn.disabled = false;
+    btn.textContent = 'Run';
+    
+    if (!result.success) {
+        alert('Command failed: ' + (result.error || 'Check event log'));
+    }
+    
+    pollEvents();
+}
+
+// Collectors
+async function startCollector(name) {
+    const result = await apiCall(`/api/runs/${runId}/collector/start`, 'POST', { collector: name });
+    if (result.success) location.reload();
+}
+
+async function stopCollector(name) {
+    const result = await apiCall(`/api/runs/${runId}/collector/stop`, 'POST', { collector: name });
+    if (result.success) location.reload();
+}
+
+// Parameters
+function showAddParam() {
+    document.getElementById('add-param-form').style.display = 'block';
+}
+
+async function addParameter() {
+    const name = document.getElementById('param-name').value.trim();
+    const value = document.getElementById('param-value').value;
+    
+    if (!name) return;
+    
+    const result = await apiCall(`/api/runs/${runId}/parameter`, 'POST', { name, value });
+    if (result.success) location.reload();
+}
+
+// Notes
+async function addNote() {
+    const input = document.getElementById('note-input');
+    const note = input.value.trim();
+    
+    if (!note) return;
+    
+    const result = await apiCall(`/api/runs/${runId}/note`, 'POST', { note });
+    if (result.success) {
+        input.value = '';
+        pollEvents();
+    }
+}
+
+// Event polling
+async function pollEvents() {
+    const result = await fetch(`/api/runs/${runId}/events?after=${lastSeq}`);
+    const data = await result.json();
+    
+    if (data.events && data.events.length > 0) {
+        const timeline = document.getElementById('events-timeline');
+        
+        for (const event of data.events) {
+            lastSeq = event.seq;
+            
+            const div = document.createElement('div');
+            div.className = 'timeline-item';
+            if (event.type.includes('completed') || event.type.includes('pulled')) div.className += ' success';
+            else if (event.type.includes('failed') || event.type.includes('error')) div.className += ' error';
+            else if (event.type.includes('started')) div.className += ' info';
+            
+            div.innerHTML = `
+                <div class="timeline-time">${event.timestamp.substring(0, 19).replace('T', ' ')}</div>
+                <div class="timeline-content">
+                    <div class="timeline-type">${event.type.toUpperCase().replace(/_/g, ' ')}</div>
+                    ${Object.keys(event.data).length > 0 ? `
+                        <details class="event-details">
+                            <summary>Details</summary>
+                            <pre style="font-size: 11px; margin-top: 8px;">${JSON.stringify(event.data, null, 2)}</pre>
+                        </details>
+                    ` : ''}
+                </div>
+            `;
+            
+            timeline.insertBefore(div, timeline.firstChild);
+        }
+        
+        document.getElementById('event-count').textContent = `${lastSeq} events`;
+    }
+}
+
+// Poll every 2 seconds if run is active
+{% if ctx.manifest.status == 'running' %}
+setInterval(pollEvents, 2000);
+{% endif %}
+</script>
+{% endblock %}

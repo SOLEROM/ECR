@@ -1,0 +1,67 @@
+{% extends "base.html" %}
+
+{% block title %}{% if profile %}Edit {{ profile.name }}{% else %}New Profile{% endif %}{% endblock %}
+
+{% block content %}
+<div class="page-header">
+    <h1 class="page-title">{% if profile %}Edit Profile: {{ profile.name }}{% else %}New Profile{% endif %}</h1>
+</div>
+
+<form method="POST" action="{% if profile %}{{ url_for('web.profile_edit', name=profile.name) }}{% else %}{{ url_for('web.profile_new') }}{% endif %}">
+    {% if not profile %}
+    <div class="form-group">
+        <label class="form-label">Profile Name</label>
+        <input type="text" name="name" class="form-input" placeholder="my-device" required style="max-width: 300px;">
+    </div>
+    {% endif %}
+    
+    <div class="card mb-24">
+        <div class="card-header">
+            <h3 class="card-title">Profile Configuration (YAML)</h3>
+        </div>
+        <div class="card-body">
+            <textarea name="yaml_content" class="form-textarea" style="min-height: 500px; font-size: 13px;">{{ yaml_content }}</textarea>
+        </div>
+    </div>
+    
+    <div class="flex gap-8">
+        <button type="submit" class="btn btn-primary">Save Profile</button>
+        <a href="{% if profile %}{{ url_for('web.profile_view', name=profile.name) }}{% else %}{{ url_for('web.profiles_list') }}{% endif %}" class="btn">Cancel</a>
+    </div>
+</form>
+
+<div class="card mt-24">
+    <div class="card-header">
+        <h3 class="card-title">YAML Reference</h3>
+    </div>
+    <div class="card-body">
+        <pre style="font-size: 12px;">name: my-device
+description: "Description of the target device"
+
+connection:
+  host: "192.168.1.100"      # Target IP or hostname
+  port: 22                    # SSH port
+  user: "root"                # SSH username
+  key_file: "~/.ssh/id_rsa"   # Path to SSH private key
+  # password: "secret"        # Or use password auth
+  timeout: 30                 # Connection timeout in seconds
+
+actions:
+  action_name:
+    description: "What this action does"
+    commands:
+      - "echo 'Hello {param_name}'"   # Use {param} for substitution
+      - "ls -la /some/path"
+    artifacts:                         # Files to pull after commands
+      - "/tmp/output.log"
+      - "/var/log/{log_file}"
+    timeout: 60                        # Command timeout in seconds
+
+background_collectors:
+  collector_name:
+    command: "uptime && free -m"       # Command to run periodically
+    interval: 60                       # Seconds between runs
+    timeout: 10                        # Command timeout</pre>
+    </div>
+</div>
+{% endblock %}

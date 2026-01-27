@@ -1,0 +1,130 @@
+{% extends "base.html" %}
+
+{% block title %}{{ profile.name }}{% endblock %}
+
+{% block content %}
+<div class="page-header">
+    <div>
+        <h1 class="page-title">{{ profile.name }}</h1>
+        {% if profile.description %}
+        <p class="text-secondary">{{ profile.description }}</p>
+        {% endif %}
+    </div>
+    <div class="flex gap-8">
+        <a href="{{ url_for('web.run_new', profile=profile.name) }}" class="btn btn-primary">New Run</a>
+        <a href="{{ url_for('web.profile_edit', name=profile.name) }}" class="btn">Edit</a>
+    </div>
+</div>
+
+<div class="grid grid-2 mb-24">
+    <div class="card">
+        <div class="card-header">
+            <h3 class="card-title">Connection</h3>
+        </div>
+        <div class="card-body">
+            <table class="table">
+                <tr>
+                    <td class="text-secondary" style="width: 120px;">Host</td>
+                    <td><code>{{ profile.connection.host }}</code></td>
+                </tr>
+                <tr>
+                    <td class="text-secondary">Port</td>
+                    <td>{{ profile.connection.port }}</td>
+                </tr>
+                <tr>
+                    <td class="text-secondary">User</td>
+                    <td><code>{{ profile.connection.user }}</code></td>
+                </tr>
+                <tr>
+                    <td class="text-secondary">Key File</td>
+                    <td><code>{{ profile.connection.key_file or 'None' }}</code></td>
+                </tr>
+                <tr>
+                    <td class="text-secondary">Timeout</td>
+                    <td>{{ profile.connection.timeout }}s</td>
+                </tr>
+            </table>
+        </div>
+    </div>
+
+    <div class="card">
+        <div class="card-header">
+            <h3 class="card-title">Background Collectors</h3>
+            <span class="badge badge-purple">{{ profile.background_collectors|length }}</span>
+        </div>
+        <div class="card-body">
+            {% if profile.background_collectors %}
+            <table class="table">
+                <thead>
+                    <tr>
+                        <th>Name</th>
+                        <th>Interval</th>
+                        <th>Timeout</th>
+                    </tr>
+                </thead>
+                <tbody>
+                    {% for name, coll in profile.background_collectors.items() %}
+                    <tr>
+                        <td>
+                            <strong>{{ name }}</strong>
+                            <div class="text-muted" style="font-size: 12px;"><code>{{ coll.command[:40] }}{% if coll.command|length > 40 %}...{% endif %}</code></div>
+                        </td>
+                        <td>{{ coll.interval }}s</td>
+                        <td>{{ coll.timeout }}s</td>
+                    </tr>
+                    {% endfor %}
+                </tbody>
+            </table>
+            {% else %}
+            <p class="text-muted">No background collectors defined.</p>
+            {% endif %}
+        </div>
+    </div>
+</div>
+
+<div class="card">
+    <div class="card-header">
+        <h3 class="card-title">Commands</h3>
+        <span class="badge badge-info">{{ profile.commands|length }}</span>
+    </div>
+    <div class="card-body">
+        {% if profile.commands %}
+        {% for name, cmd in profile.commands.items() %}
+        <div class="mb-16" style="border-bottom: 1px solid var(--border-color); padding-bottom: 16px;">
+            <div class="flex justify-between items-center mb-8">
+                <div>
+                    <strong>{{ name }}</strong>
+                    {% if cmd.description %}
+                    <span class="text-secondary"> — {{ cmd.description }}</span>
+                    {% endif %}
+                </div>
+                <div class="flex gap-8">
+                    {% if cmd.run == 'target' %}
+                    <span class="badge badge-warning">target</span>
+                    {% else %}
+                    <span class="badge badge-success">host</span>
+                    {% endif %}
+                    <span class="badge">timeout: {{ cmd.timeout }}s</span>
+                </div>
+            </div>
+            
+            <div class="mb-8">
+                <pre style="margin-bottom: 4px;">{{ cmd.command }}</pre>
+            </div>
+            
+            {% if cmd.artifacts %}
+            <div>
+                <div class="text-secondary" style="font-size: 12px; margin-bottom: 4px;">Artifacts:</div>
+                {% for artifact in cmd.artifacts %}
+                <code style="display: block; margin-bottom: 2px;">{{ artifact }}</code>
+                {% endfor %}
+            </div>
+            {% endif %}
+        </div>
+        {% endfor %}
+        {% else %}
+        <p class="text-muted">No commands defined.</p>
+        {% endif %}
+    </div>
+</div>
+{% endblock %}

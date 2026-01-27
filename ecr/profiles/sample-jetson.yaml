@@ -1,0 +1,64 @@
+name: sample-jetson
+description: "Sample profile for Jetson Nano edge AI experiments"
+
+connection:
+  host: "192.168.1.100"
+  port: 22
+  user: "nvidia"
+  key_file: "~/.ssh/id_rsa"
+  timeout: 30
+
+commands:
+  # Host commands (run on controller) - default
+  prepare_data:
+    description: "Prepare input data on controller"
+    command: "echo 'Preparing data for {model_name}' && ls -la {input_dir}"
+    timeout: 30
+
+  analyze_results:
+    description: "Analyze collected results locally"
+    command: "echo 'Analyzing results' && wc -l {output_file}"
+    timeout: 60
+
+  # Target commands (run on device via SSH)
+  system_info:
+    description: "Collect basic system information from target"
+    command: "uname -a && cat /etc/os-release && free -h && df -h"
+    run: target
+    timeout: 30
+
+  start_inference:
+    description: "Start the inference engine with specified model"
+    command: "cd /opt/models && python3 run_inference.py --model {model_name} --input {input_path}"
+    run: target
+    artifacts:
+      - "/tmp/inference_output.json"
+      - "/tmp/inference_metrics.csv"
+    timeout: 300
+
+  collect_gpu_metrics:
+    description: "Collect GPU utilization metrics"
+    command: "tegrastats --interval 1000 --logfile /tmp/tegrastats.log & sleep {duration} && killall tegrastats || true"
+    run: target
+    artifacts:
+      - "/tmp/tegrastats.log"
+    timeout: 120
+
+  cleanup:
+    description: "Clean up temporary files on target"
+    command: "rm -f /tmp/inference_*.json /tmp/inference_*.csv /tmp/tegrastats.log"
+    run: target
+    timeout: 30
+
+background_collectors:
+  system_stats:
+    command: "uptime && free -m && cat /proc/loadavg"
+    run: target
+    interval: 60
+    timeout: 10
+
+  gpu_temp:
+    command: "cat /sys/devices/gpu.0/temp 2>/dev/null || echo 'N/A'"
+    run: target
+    interval: 30
+    timeout: 5
