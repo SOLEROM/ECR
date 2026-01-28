@@ -53,20 +53,37 @@
     {% if profile_data %}
     <div class="card mb-24">
         <div class="card-header">
-            <h3 class="card-title">Available Commands</h3>
-            <span class="badge badge-info">{{ profile_data.commands_list|length }}</span>
+            <h3 class="card-title">Select Commands</h3>
+            <div class="flex gap-8">
+                <button type="button" class="btn btn-sm" onclick="selectAll()">Select All</button>
+                <button type="button" class="btn btn-sm" onclick="selectNone()">Select None</button>
+            </div>
         </div>
         <div class="card-body">
-            <div class="text-muted mb-8" style="font-size: 12px;">
-                These commands will be available to run on-demand during the experiment.
+            <div class="text-muted mb-16" style="font-size: 12px;">
+                Select which commands will be available during this experiment run.
             </div>
-            <div class="flex gap-8" style="flex-wrap: wrap;">
+            
+            <div class="commands-grid">
                 {% for cmd_name in profile_data.commands_list %}
                     {% set cmd = profile_data.commands[cmd_name] %}
-                    <div class="badge {% if cmd.run == 'target' %}badge-warning{% else %}badge-success{% endif %}" style="padding: 8px 12px;">
-                        {{ cmd_name }}
-                        <span class="text-muted" style="font-size: 10px;">({{ cmd.run or 'host' }})</span>
-                    </div>
+                    <label class="command-checkbox">
+                        <input type="checkbox" name="selected_commands[]" value="{{ cmd_name }}" checked>
+                        <div class="command-info">
+                            <div class="command-name">
+                                {{ cmd_name }}
+                                {% if cmd.run == 'target' %}
+                                <span class="badge badge-warning">target</span>
+                                {% else %}
+                                <span class="badge badge-success">host</span>
+                                {% endif %}
+                            </div>
+                            {% if cmd.description %}
+                            <div class="command-desc">{{ cmd.description }}</div>
+                            {% endif %}
+                            <div class="command-cmd"><code>{{ cmd.command[:60] }}{% if cmd.command|length > 60 %}...{% endif %}</code></div>
+                        </div>
+                    </label>
                 {% endfor %}
             </div>
         </div>
@@ -78,6 +95,75 @@
         <a href="{{ url_for('web.dashboard') }}" class="btn">Cancel</a>
     </div>
 </form>
+
+<style>
+.commands-grid {
+    display: grid;
+    grid-template-columns: repeat(auto-fill, minmax(350px, 1fr));
+    gap: 12px;
+}
+
+.command-checkbox {
+    display: flex;
+    align-items: flex-start;
+    gap: 12px;
+    padding: 12px;
+    background: var(--bg-primary);
+    border: 1px solid var(--border-color);
+    border-radius: 6px;
+    cursor: pointer;
+    transition: all 0.15s;
+}
+
+.command-checkbox:hover {
+    border-color: var(--accent-blue);
+}
+
+.command-checkbox input[type="checkbox"] {
+    margin-top: 4px;
+    width: 18px;
+    height: 18px;
+    cursor: pointer;
+}
+
+.command-checkbox input[type="checkbox"]:checked + .command-info {
+    opacity: 1;
+}
+
+.command-checkbox input[type="checkbox"]:not(:checked) + .command-info {
+    opacity: 0.5;
+}
+
+.command-info {
+    flex: 1;
+    min-width: 0;
+}
+
+.command-name {
+    font-weight: 600;
+    margin-bottom: 4px;
+    display: flex;
+    align-items: center;
+    gap: 8px;
+}
+
+.command-desc {
+    font-size: 12px;
+    color: var(--text-secondary);
+    margin-bottom: 4px;
+}
+
+.command-cmd {
+    font-size: 11px;
+    color: var(--text-muted);
+}
+
+.command-cmd code {
+    background: var(--bg-tertiary);
+    padding: 2px 4px;
+    border-radius: 3px;
+}
+</style>
 
 <script>
 let profileData = {{ profile_data | tojson | safe if profile_data else 'null' }};
@@ -99,6 +185,14 @@ function addParameter(key = '', value = '') {
         <button type="button" class="btn btn-sm btn-danger" onclick="this.parentElement.remove()">×</button>
     `;
     container.appendChild(div);
+}
+
+function selectAll() {
+    document.querySelectorAll('input[name="selected_commands[]"]').forEach(cb => cb.checked = true);
+}
+
+function selectNone() {
+    document.querySelectorAll('input[name="selected_commands[]"]').forEach(cb => cb.checked = false);
 }
 </script>
 {% endblock %}

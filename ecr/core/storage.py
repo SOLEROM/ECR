@@ -33,6 +33,7 @@ class RunManifest:
     started_at: Optional[str] = None
     completed_at: Optional[str] = None
     parameters: Dict[str, str] = field(default_factory=dict)
+    selected_commands: List[str] = field(default_factory=list)
     artifacts: List[Dict[str, str]] = field(default_factory=list)
     notes: str = ""
     

@@ -33,7 +33,8 @@
         <button class="btn" onclick="pauseRun()">⏸ Pause</button>
         <button class="btn btn-primary" onclick="completeRun()">✓ Complete</button>
         {% endif %}
-        <a href="{{ url_for('web.run_export', run_id=ctx.run_id) }}" class="btn">📦 Export</a>
+        <a href="{{ url_for('web.run_save', run_id=ctx.run_id) }}" class="btn">💾 Save</a>
+        <a href="{{ url_for('web.run_export', run_id=ctx.run_id) }}" class="btn">📄 Export</a>
         <button class="btn btn-danger" onclick="deleteRun()">🗑 Delete</button>
     </div>
 </div>
@@ -130,26 +131,30 @@
     <div class="card">
         <div class="card-header">
             <h3 class="card-title">Commands</h3>
-            <span class="badge badge-info">{{ ctx.profile.commands|length }}</span>
+            <span class="badge badge-info">{{ ctx.manifest.selected_commands|length if ctx.manifest.selected_commands else ctx.profile.commands|length }}</span>
         </div>
-        <div class="card-body">
-            {% for name, cmd in ctx.profile.commands.items() %}
-            <div class="flex justify-between items-center mb-12" style="padding-bottom: 12px; border-bottom: 1px solid var(--border-color);">
-                <div>
-                    <strong>{{ name }}</strong>
-                    {% if cmd.run == 'target' %}
-                    <span class="badge badge-warning" style="margin-left: 8px;">target</span>
-                    {% else %}
-                    <span class="badge badge-success" style="margin-left: 8px;">host</span>
-                    {% endif %}
-                    {% if cmd.description %}
-                    <div class="text-muted" style="font-size: 12px;">{{ cmd.description }}</div>
+        <div class="card-body" style="max-height: 400px; overflow-y: auto;">
+            {% set available_commands = ctx.manifest.selected_commands if ctx.manifest.selected_commands else ctx.profile.commands.keys()|list %}
+            {% for cmd_name in available_commands %}
+                {% set cmd = ctx.profile.commands.get(cmd_name) %}
+                {% if cmd %}
+                <div class="flex justify-between items-center mb-12" style="padding-bottom: 12px; border-bottom: 1px solid var(--border-color);">
+                    <div>
+                        <strong>{{ cmd_name }}</strong>
+                        {% if cmd.run == 'target' %}
+                        <span class="badge badge-warning" style="margin-left: 8px;">target</span>
+                        {% else %}
+                        <span class="badge badge-success" style="margin-left: 8px;">host</span>
+                        {% endif %}
+                        {% if cmd.description %}
+                        <div class="text-muted" style="font-size: 12px;">{{ cmd.description }}</div>
+                        {% endif %}
+                    </div>
+                    {% if ctx.manifest.status == 'running' %}
+                    <button class="btn btn-sm btn-primary" onclick="executeCommand('{{ cmd_name }}')">Run</button>
                     {% endif %}
                 </div>
-                {% if ctx.manifest.status == 'running' %}
-                <button class="btn btn-sm btn-primary" onclick="executeCommand('{{ name }}')">Run</button>
                 {% endif %}
-            </div>
             {% endfor %}
         </div>
     </div>
@@ -161,10 +166,10 @@
         </div>
         <div class="card-body">
             {% if ctx.profile.background_collectors %}
-            {% for name, coll in ctx.profile.background_collectors.items() %}
+            {% for coll_name, coll in ctx.profile.background_collectors.items() %}
             <div class="flex justify-between items-center mb-12">
                 <div>
-                    <strong>{{ name }}</strong>
+                    <strong>{{ coll_name }}</strong>
                     {% if coll.run == 'target' %}
                     <span class="badge badge-warning" style="margin-left: 8px;">target</span>
                     {% else %}
@@ -175,15 +180,15 @@
                     </div>
                 </div>
                 <div class="flex gap-8">
-                    {% if name in active_collectors %}
+                    {% if coll_name in active_collectors %}
                     <span class="badge badge-success">● Active</span>
                     {% if ctx.manifest.status == 'running' %}
-                    <button class="btn btn-sm btn-danger" onclick="stopCollector('{{ name }}')">Stop</button>
+                    <button class="btn btn-sm btn-danger" onclick="stopCollector('{{ coll_name }}')">Stop</button>
                     {% endif %}
                     {% else %}
                     <span class="badge">○ Stopped</span>
                     {% if ctx.manifest.status == 'running' %}
-                    <button class="btn btn-sm btn-primary" onclick="startCollector('{{ name }}')">Start</button>
+                    <button class="btn btn-sm btn-primary" onclick="startCollector('{{ coll_name }}')">Start</button>
                     {% endif %}
                     {% endif %}
                 </div>
@@ -209,35 +214,217 @@
     </div>
 </div>
 
-<!-- Event Timeline -->
+<!-- Event Log (Terminal Style) -->
 <div class="card">
     <div class="card-header">
-        <h3 class="card-title">Event Timeline</h3>
-        <span class="badge" id="event-count">{{ events|length }} events</span>
+        <h3 class="card-title">Event Log</h3>
+        <div class="flex gap-8 items-center">
+            <span class="badge" id="event-count">{{ events|length }} events</span>
+            <button class="btn btn-sm" id="sort-btn" onclick="toggleSort()">↑ Oldest First</button>
+        </div>
     </div>
     <div class="card-body">
-        <div class="timeline" id="events-timeline">
-            {% for event in events|reverse %}
-            <div class="timeline-item {% if 'completed' in event.type or 'pulled' in event.type %}success{% elif 'failed' in event.type or 'error' in event.type %}error{% elif 'started' in event.type %}info{% endif %}">
-                <div class="timeline-time">{{ event.timestamp[:19].replace('T', ' ') }}</div>
-                <div class="timeline-content">
-                    <div class="timeline-type">{{ event.type | upper | replace('_', ' ') }}</div>
-                    {% if event.data %}
-                    <details class="event-details">
-                        <summary>Details</summary>
-                        <pre style="font-size: 11px; margin-top: 8px;">{{ event.data | tojson(indent=2) }}</pre>
-                    </details>
-                    {% endif %}
+        <div class="terminal" id="event-log">
+            {% for event in events %}
+            <div class="term-entry" data-seq="{{ event.seq }}">
+                {% if event.type == 'command_started' %}
+                <div class="term-prompt">
+                    <span class="term-time">{{ event.timestamp[11:19] }}</span>
+                    <span class="term-location">{{ event.data.run_location|default('host') }}</span>
+                    <span class="term-cmd">$ {{ event.data.command|default(event.data.command_name)|default('') }}</span>
                 </div>
+                {% elif event.type == 'command_completed' or event.type == 'command_failed' %}
+                <div class="term-output {% if event.type == 'command_failed' %}term-error{% else %}term-success{% endif %}">
+                    {% if event.data.stdout %}<pre>{{ event.data.stdout }}</pre>{% endif %}
+                    {% if event.data.stderr %}<pre class="stderr">{{ event.data.stderr }}</pre>{% endif %}
+                    <div class="term-status">
+                        {% if event.type == 'command_completed' %}
+                        ✓ exit {{ event.data.exit_code|default(0) }} ({{ "%.2f"|format(event.data.duration|default(0)) }}s)
+                        {% else %}
+                        ✗ exit {{ event.data.exit_code|default(1) }} ({{ "%.2f"|format(event.data.duration|default(0)) }}s)
+                        {% endif %}
+                    </div>
+                </div>
+                {% elif event.type == 'collector_output' %}
+                <div class="term-collector">
+                    <span class="term-time">{{ event.timestamp[11:19] }}</span>
+                    <span class="term-badge">{{ event.data.collector }}</span>
+                    <pre>{{ event.data.stdout|default('') }}</pre>
+                </div>
+                {% elif event.type == 'note' %}
+                <div class="term-note">
+                    <span class="term-time">{{ event.timestamp[11:19] }}</span>
+                    📝 {{ event.data.text }}
+                </div>
+                {% else %}
+                <div class="term-event {% if 'started' in event.type %}term-info{% elif 'completed' in event.type or 'pulled' in event.type %}term-success{% elif 'failed' in event.type or 'error' in event.type %}term-error{% endif %}">
+                    <span class="term-time">{{ event.timestamp[11:19] }}</span>
+                    <span class="term-type">{{ event.type }}</span>
+                    {% if event.data.command_name %}<span class="term-detail">{{ event.data.command_name }}</span>{% endif %}
+                    {% if event.data.error %}<span class="term-detail term-error-text">{{ event.data.error }}</span>{% endif %}
+                </div>
+                {% endif %}
             </div>
             {% endfor %}
         </div>
     </div>
 </div>
 
+<style>
+.terminal {
+    font-family: 'SF Mono', Monaco, 'Cascadia Code', 'Consolas', monospace;
+    font-size: 12px;
+    background: #0d1117;
+    border-radius: 6px;
+    padding: 12px;
+    max-height: 600px;
+    overflow-y: auto;
+}
+
+.term-entry {
+    margin-bottom: 8px;
+}
+
+.term-prompt {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    color: #58a6ff;
+    padding: 4px 0;
+}
+
+.term-time {
+    color: #6e7681;
+    font-size: 11px;
+    min-width: 60px;
+}
+
+.term-location {
+    background: #238636;
+    color: #fff;
+    padding: 1px 6px;
+    border-radius: 3px;
+    font-size: 10px;
+    text-transform: uppercase;
+}
+
+.term-location:contains('target') {
+    background: #d29922;
+}
+
+.term-cmd {
+    color: #c9d1d9;
+}
+
+.term-output {
+    margin-left: 68px;
+    padding: 8px 12px;
+    background: #161b22;
+    border-left: 3px solid #3fb950;
+    border-radius: 0 4px 4px 0;
+}
+
+.term-output.term-error {
+    border-left-color: #f85149;
+}
+
+.term-output pre {
+    margin: 0;
+    color: #c9d1d9;
+    white-space: pre-wrap;
+    word-break: break-all;
+}
+
+.term-output pre.stderr {
+    color: #f85149;
+}
+
+.term-status {
+    margin-top: 8px;
+    font-size: 11px;
+    color: #8b949e;
+}
+
+.term-success .term-status { color: #3fb950; }
+.term-error .term-status { color: #f85149; }
+
+.term-collector {
+    display: flex;
+    align-items: flex-start;
+    gap: 8px;
+    padding: 4px 0;
+    color: #8b949e;
+}
+
+.term-collector pre {
+    margin: 0;
+    flex: 1;
+    color: #8b949e;
+}
+
+.term-badge {
+    background: #6e40c9;
+    color: #fff;
+    padding: 1px 6px;
+    border-radius: 3px;
+    font-size: 10px;
+}
+
+.term-note {
+    padding: 8px 12px;
+    background: #1c2128;
+    border-left: 3px solid #58a6ff;
+    border-radius: 0 4px 4px 0;
+    color: #c9d1d9;
+}
+
+.term-event {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    padding: 4px 0;
+    color: #8b949e;
+}
+
+.term-type {
+    font-weight: 500;
+}
+
+.term-info .term-type { color: #58a6ff; }
+.term-success .term-type { color: #3fb950; }
+.term-error .term-type { color: #f85149; }
+
+.term-detail {
+    color: #6e7681;
+}
+
+.term-error-text {
+    color: #f85149;
+}
+</style>
+
 <script>
 const runId = '{{ ctx.run_id }}';
 let lastSeq = {{ events[-1].seq if events else 0 }};
+let sortAsc = false; // false = newest first (default)
+
+// Sort toggle
+function toggleSort() {
+    sortAsc = !sortAsc;
+    const btn = document.getElementById('sort-btn');
+    btn.textContent = sortAsc ? '↓ Newest First' : '↑ Oldest First';
+    
+    const log = document.getElementById('event-log');
+    const entries = Array.from(log.querySelectorAll('.term-entry'));
+    
+    entries.sort((a, b) => {
+        const seqA = parseInt(a.dataset.seq);
+        const seqB = parseInt(b.dataset.seq);
+        return sortAsc ? seqA - seqB : seqB - seqA;
+    });
+    
+    entries.forEach(entry => log.appendChild(entry));
+}
 
 // Run control
 async function startRun() {
@@ -282,13 +469,13 @@ async function executeCommand(commandName) {
 }
 
 // Collectors
-async function startCollector(name) {
-    const result = await apiCall(`/api/runs/${runId}/collector/start`, 'POST', { collector: name });
+async function startCollector(collName) {
+    const result = await apiCall(`/api/runs/${runId}/collector/start`, 'POST', { collector: collName });
     if (result.success) location.reload();
 }
 
-async function stopCollector(name) {
-    const result = await apiCall(`/api/runs/${runId}/collector/stop`, 'POST', { collector: name });
+async function stopCollector(collName) {
+    const result = await apiCall(`/api/runs/${runId}/collector/stop`, 'POST', { collector: collName });
     if (result.success) location.reload();
 }
 
@@ -298,12 +485,12 @@ function showAddParam() {
 }
 
 async function addParameter() {
-    const name = document.getElementById('param-name').value.trim();
+    const pname = document.getElementById('param-name').value.trim();
     const value = document.getElementById('param-value').value;
     
-    if (!name) return;
+    if (!pname) return;
     
-    const result = await apiCall(`/api/runs/${runId}/parameter`, 'POST', { name, value });
+    const result = await apiCall(`/api/runs/${runId}/parameter`, 'POST', { name: pname, value: value });
     if (result.success) location.reload();
 }
 
@@ -314,7 +501,7 @@ async function addNote() {
     
     if (!note) return;
     
-    const result = await apiCall(`/api/runs/${runId}/note`, 'POST', { note });
+    const result = await apiCall(`/api/runs/${runId}/note`, 'POST', { note: note });
     if (result.success) {
         input.value = '';
         pollEvents();
@@ -327,34 +514,89 @@ async function pollEvents() {
     const data = await result.json();
     
     if (data.events && data.events.length > 0) {
-        const timeline = document.getElementById('events-timeline');
+        const log = document.getElementById('event-log');
         
-        for (const event of data.events) {
-            lastSeq = event.seq;
+        for (const ev of data.events) {
+            lastSeq = ev.seq;
             
             const div = document.createElement('div');
-            div.className = 'timeline-item';
-            if (event.type.includes('completed') || event.type.includes('pulled')) div.className += ' success';
-            else if (event.type.includes('failed') || event.type.includes('error')) div.className += ' error';
-            else if (event.type.includes('started')) div.className += ' info';
+            div.className = 'term-entry';
+            div.dataset.seq = ev.seq;
             
-            div.innerHTML = `
-                <div class="timeline-time">${event.timestamp.substring(0, 19).replace('T', ' ')}</div>
-                <div class="timeline-content">
-                    <div class="timeline-type">${event.type.toUpperCase().replace(/_/g, ' ')}</div>
-                    ${Object.keys(event.data).length > 0 ? `
-                        <details class="event-details">
-                            <summary>Details</summary>
-                            <pre style="font-size: 11px; margin-top: 8px;">${JSON.stringify(event.data, null, 2)}</pre>
-                        </details>
-                    ` : ''}
-                </div>
-            `;
+            if (ev.type === 'command_started') {
+                const loc = ev.data.run_location || 'host';
+                const cmd = ev.data.command || ev.data.command_name || '';
+                div.innerHTML = `
+                    <div class="term-prompt">
+                        <span class="term-time">${ev.timestamp.substring(11, 19)}</span>
+                        <span class="term-location">${loc}</span>
+                        <span class="term-cmd">$ ${cmd}</span>
+                    </div>
+                `;
+            } else if (ev.type === 'command_completed' || ev.type === 'command_failed') {
+                const isError = ev.type === 'command_failed';
+                const stdout = ev.data.stdout || '';
+                const stderr = ev.data.stderr || '';
+                const exitCode = ev.data.exit_code || 0;
+                const duration = (ev.data.duration || 0).toFixed(2);
+                div.innerHTML = `
+                    <div class="term-output ${isError ? 'term-error' : 'term-success'}">
+                        ${stdout ? `<pre>${stdout}</pre>` : ''}
+                        ${stderr ? `<pre class="stderr">${stderr}</pre>` : ''}
+                        <div class="term-status">
+                            ${isError ? '✗' : '✓'} exit ${exitCode} (${duration}s)
+                        </div>
+                    </div>
+                `;
+            } else if (ev.type === 'collector_output') {
+                div.innerHTML = `
+                    <div class="term-collector">
+                        <span class="term-time">${ev.timestamp.substring(11, 19)}</span>
+                        <span class="term-badge">${ev.data.collector}</span>
+                        <pre>${ev.data.stdout || ''}</pre>
+                    </div>
+                `;
+            } else if (ev.type === 'note') {
+                div.innerHTML = `
+                    <div class="term-note">
+                        <span class="term-time">${ev.timestamp.substring(11, 19)}</span>
+                        📝 ${ev.data.text}
+                    </div>
+                `;
+            } else {
+                let cssClass = '';
+                if (ev.type.includes('started')) cssClass = 'term-info';
+                else if (ev.type.includes('completed') || ev.type.includes('pulled')) cssClass = 'term-success';
+                else if (ev.type.includes('failed') || ev.type.includes('error')) cssClass = 'term-error';
+                
+                let detail = ev.data.command_name || '';
+                if (ev.data.error) detail = ev.data.error;
+                
+                div.innerHTML = `
+                    <div class="term-event ${cssClass}">
+                        <span class="term-time">${ev.timestamp.substring(11, 19)}</span>
+                        <span class="term-type">${ev.type}</span>
+                        ${detail ? `<span class="term-detail">${detail}</span>` : ''}
+                    </div>
+                `;
+            }
             
-            timeline.insertBefore(div, timeline.firstChild);
+            // Insert based on sort order
+            if (sortAsc) {
+                log.appendChild(div);
+            } else {
+                log.insertBefore(div, log.firstChild);
+            }
         }
         
         document.getElementById('event-count').textContent = `${lastSeq} events`;
+        
+        // Auto-scroll
+        if (!sortAsc) {
+            log.scrollTop = 0;
+        } else {
+            log.scrollTop = log.scrollHeight;
+        }
     }
 }
 
@@ -362,5 +604,13 @@ async function pollEvents() {
 {% if ctx.manifest.status == 'running' %}
 setInterval(pollEvents, 2000);
 {% endif %}
+
+// Initial sort based on default (newest first)
+document.addEventListener('DOMContentLoaded', function() {
+    const log = document.getElementById('event-log');
+    const entries = Array.from(log.querySelectorAll('.term-entry'));
+    entries.sort((a, b) => parseInt(b.dataset.seq) - parseInt(a.dataset.seq));
+    entries.forEach(entry => log.appendChild(entry));
+});
 </script>
 {% endblock %}

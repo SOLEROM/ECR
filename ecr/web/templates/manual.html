@@ -1,0 +1,82 @@
+{% extends "base.html" %}
+
+{% block title %}Configuration Guide{% endblock %}
+
+{% block content %}
+<div class="page-header">
+    <h1 class="page-title">Profile Configuration Guide</h1>
+</div>
+
+<div class="card">
+    <div class="card-body manual-content">
+        {{ content | safe }}
+    </div>
+</div>
+
+<style>
+.manual-content {
+    line-height: 1.7;
+}
+.manual-content h1 {
+    font-size: 24px;
+    margin: 24px 0 16px 0;
+    padding-bottom: 8px;
+    border-bottom: 1px solid var(--border-color);
+}
+.manual-content h2 {
+    font-size: 20px;
+    margin: 20px 0 12px 0;
+    color: var(--accent-blue);
+}
+.manual-content h3 {
+    font-size: 16px;
+    margin: 16px 0 8px 0;
+}
+.manual-content p {
+    margin: 12px 0;
+}
+.manual-content ul, .manual-content ol {
+    margin: 12px 0;
+    padding-left: 24px;
+}
+.manual-content li {
+    margin: 6px 0;
+}
+.manual-content code {
+    background: var(--bg-primary);
+    padding: 2px 6px;
+    border-radius: 4px;
+    font-size: 13px;
+}
+.manual-content pre {
+    background: var(--bg-primary);
+    border: 1px solid var(--border-color);
+    border-radius: 6px;
+    padding: 16px;
+    overflow-x: auto;
+    margin: 16px 0;
+}
+.manual-content pre code {
+    background: none;
+    padding: 0;
+}
+.manual-content table {
+    width: 100%;
+    border-collapse: collapse;
+    margin: 16px 0;
+}
+.manual-content th, .manual-content td {
+    padding: 8px 12px;
+    border: 1px solid var(--border-color);
+    text-align: left;
+}
+.manual-content th {
+    background: var(--bg-tertiary);
+}
+.manual-content hr {
+    border: none;
+    border-top: 1px solid var(--border-color);
+    margin: 24px 0;
+}
+</style>
+{% endblock %}

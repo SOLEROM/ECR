@@ -1,0 +1,142 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <title>ECR Report - 2026-01-28_175828</title>
+    <style>
+        :root { --bg:#0d1117; --bg-card:#161b22; --border:#30363d; --text:#e6edf3; --text-muted:#8b949e; --green:#3fb950; --red:#f85149; --blue:#58a6ff; }
+        * { box-sizing:border-box; margin:0; padding:0; }
+        body { font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',Helvetica,Arial,sans-serif; background:var(--bg); color:var(--text); line-height:1.6; padding:24px; }
+        .container { max-width:1200px; margin:0 auto; }
+        h1 { font-size:28px; margin-bottom:8px; }
+        h2 { font-size:18px; margin:24px 0 12px; color:var(--blue); }
+        .subtitle { color:var(--text-muted); margin-bottom:24px; }
+        .card { background:var(--bg-card); border:1px solid var(--border); border-radius:8px; padding:16px; margin-bottom:16px; }
+        .grid { display:grid; grid-template-columns:repeat(3,1fr); gap:16px; }
+        .badge { display:inline-block; padding:4px 8px; border-radius:12px; font-size:12px; }
+        .badge-success { background:rgba(63,185,80,0.2); color:var(--green); }
+        .badge-warning { background:rgba(210,153,34,0.2); color:#d29922; }
+        table { width:100%; border-collapse:collapse; margin-top:12px; }
+        th,td { padding:8px 12px; text-align:left; border-bottom:1px solid var(--border); }
+        th { color:var(--text-muted); font-size:12px; text-transform:uppercase; }
+        code { background:var(--bg); padding:2px 6px; border-radius:4px; }
+        ul { padding-left:20px; }
+        .timestamp { font-size:12px; color:var(--text-muted); }
+        
+        /* Terminal styles */
+        .terminal { font-family:'SF Mono',Monaco,'Consolas',monospace; font-size:12px; background:#0d1117; border-radius:6px; padding:12px; }
+        .term-prompt { display:flex; align-items:center; gap:8px; color:#58a6ff; padding:4px 0; }
+        .term-time { color:#6e7681; font-size:11px; min-width:60px; }
+        .term-loc { color:#fff; padding:1px 6px; border-radius:3px; font-size:10px; text-transform:uppercase; }
+        .term-cmd { color:#c9d1d9; }
+        .term-output { margin-left:68px; padding:8px 12px; background:#161b22; border-left:3px solid var(--green); border-radius:0 4px 4px 0; margin-bottom:8px; }
+        .term-output.term-error { border-left-color:var(--red); }
+        .term-output pre { margin:0; color:#c9d1d9; white-space:pre-wrap; word-break:break-all; background:none; padding:0; }
+        .term-output pre.stderr { color:var(--red); }
+        .term-status { margin-top:8px; font-size:11px; color:#8b949e; }
+        .term-collector { display:flex; align-items:flex-start; gap:8px; padding:4px 0; color:#8b949e; }
+        .term-collector pre { margin:0; flex:1; color:#8b949e; background:none; padding:0; }
+        .term-badge { background:#6e40c9; color:#fff; padding:1px 6px; border-radius:3px; font-size:10px; }
+        .term-note { padding:8px 12px; background:#1c2128; border-left:3px solid var(--blue); border-radius:0 4px 4px 0; color:#c9d1d9; margin-bottom:8px; }
+        .term-event { display:flex; align-items:center; gap:8px; padding:4px 0; color:#8b949e; }
+        .term-type { font-weight:500; }
+        .term-info .term-type { color:var(--blue); }
+        .term-success .term-type { color:var(--green); }
+        .term-error .term-type { color:var(--red); }
+        .term-detail { color:#6e7681; }
+    </style>
+</head>
+<body>
+    <div class="container">
+        <h1>ECR Experiment Report</h1>
+        <p class="subtitle">2026-01-28_175828 - local-test</p>
+        <div class="grid">
+            <div class="card"><strong>Status</strong><br><span class="badge badge-warning">RUNNING</span></div>
+            <div class="card"><strong>Created</strong><br><span class="timestamp">2026-01-28 15:58:28</span></div>
+            <div class="card"><strong>Completed</strong><br><span class="timestamp">N/A</span></div>
+        </div>
+        <h2>Parameters</h2>
+        <div class="card"><table><tr><th>Name</th><th>Value</th></tr><tr><td>directory</td><td><code>/</code></td></tr></table></div>
+        <h2>Artifacts</h2>
+        <div class="card"><p>No artifacts collected.</p></div>
+        <h2>Event Log (8 events)</h2>
+        <div class="card">
+            <div class="terminal">
+                <div class="term-event term-info">
+                    <span class="term-time">15:58:33</span>
+                    <span class="term-type">run_started</span>
+                    
+                </div>
+                <div class="term-note">
+                    <span class="term-time">15:58:43</span>
+                    📝 my note
+                </div>
+                <div class="term-prompt">
+                    <span class="term-time">15:58:47</span>
+                    <span class="term-loc" style="background:#238636">host</span>
+                    <span class="term-cmd">$ list_files</span>
+                </div>
+                <div class="term-output term-error">
+                    
+                    <pre class="stderr">ls: cannot access '{directory}': No such file or directory
+</pre>
+                    <div class="term-status">✗ exit 2 (0.00s)</div>
+                </div>
+                <div class="term-event term-">
+                    <span class="term-time">15:59:01</span>
+                    <span class="term-type">parameter_set</span>
+                    
+                </div>
+                <div class="term-prompt">
+                    <span class="term-time">15:59:05</span>
+                    <span class="term-loc" style="background:#238636">host</span>
+                    <span class="term-cmd">$ list_files</span>
+                </div>
+                <div class="term-output ">
+                    <pre>total 10485984
+drwxr-xr-x  25 root root        4096 Dec 11 08:37 .
+drwxr-xr-x  25 root root        4096 Dec 11 08:37 ..
+-rw-r--r--   1 root root           0 Dec 12  2023 .autorelabel
+lrwxrwxrwx   1 root root           7 Dec 10  2021 bin -> usr/bin
+drwxr-xr-x   4 root root        4096 Jul 16  2025 boot
+drwxrwxr-x   2 root root        4096 Dec 10  2021 cdrom
+drwxr-xr-x  32 vlad vlad        4096 Jan 13 21:12 data
+drwxr-xr-x  22 root root        5480 Jan 27 04:22 dev
+drwxr-xr-x 173 root root       12288 Jan  9 08:19 etc
+drwxr-xr-x   6 root root        4096 Dec 10 11:22 home
+lrwxrwxrwx   1 root root           7 Dec 10  2021 lib -> usr/lib
+lrwxrwxrwx   1 root root           9 Dec 10  2021 lib32 -> usr/lib32
+lrwxrwxrwx   1 root root           9 Dec 10  2021 lib64 -> usr/lib64
+lrwxrwxrwx   1 root root          10 Dec 10  2021 libx32 -> usr/libx32
+drwxr-xr-x   2 root root        4096 Jul  7  2022 log
+drwx------   2 root root       16384 Dec 10  2021 lost+found
+drwxr-xr-x   3 root root        4096 Jan 26 17:29 media
+drwxr-xr-x   3 root root        4096 Jan  8 17:10 mnt
+drwxr-xr-x   2 root root        4096 Oct  3  2023 mnt2
+drwxr-xr-x   2 root root        4096 Jun 30  2024 mnt3
+drwxr-xr-x  16 root root        4096 Dec 10 11:22 opt
+dr-xr-xr-x 448 root root           0 Jan 26 17:29 proc
+drwx------  18 root root        4096 Jan 19 17:47 root
+drwxr-xr-x  46 root root        1380 Jan 28 06:17 run
+lrwxrwxrwx   1 root root           8 Dec 10  2021 sbin -> usr/sbin
+drwxr-xr-x   3 root root        4096 Jun 29  2024 share
+drwxr-xr-x  28 root root        4096 Feb 14  2025 snap
+drwxr-xr-x   2 root root        4096 Aug 19  2021 srv
+-rw-------   1 root root 10737418240 Dec 11 08:40 swapfile
+dr-xr-xr-x  13 root root           0 Jan 26 17:29 sys
+drwxrwxrwt  33 root root       28672 Jan 28 17:56 tmp
+drwxr-xr-x  16 root root        4096 Mar  9  2023 usr
+drwxr-xr-x  14 root root        4096 Aug 19  2021 var
+</pre>
+                    
+                    <div class="term-status">✓ exit 0 (0.00s)</div>
+                </div>
+                <div class="term-note">
+                    <span class="term-time">15:59:17</span>
+                    📝 aaa
+                </div></div>
+        </div>
+        <p class="timestamp" style="margin-top:24px; text-align:center;">Generated by ECR - 2026-01-28 17:59:32</p>
+    </div>
+</body>
+</html>

@@ -1,0 +1,17 @@
+{
+  "run_id": "2026-01-28_175828",
+  "name": "2026-01-28_175828",
+  "profile_name": "local-test",
+  "status": "running",
+  "created_at": "2026-01-28T15:58:28.362246+00:00",
+  "started_at": "2026-01-28T15:58:33.295938+00:00",
+  "completed_at": null,
+  "parameters": {
+    "directory": "/"
+  },
+  "selected_commands": [
+    "list_files"
+  ],
+  "artifacts": [],
+  "notes": ""
+}

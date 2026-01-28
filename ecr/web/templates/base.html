@@ -511,6 +511,7 @@
             <a href="{{ url_for('web.dashboard') }}" class="{% if request.endpoint == 'web.dashboard' %}active{% endif %}">Dashboard</a>
             <a href="{{ url_for('web.profiles_list') }}" class="{% if 'profile' in request.endpoint %}active{% endif %}">Profiles</a>
             <a href="{{ url_for('web.run_new') }}" class="{% if request.endpoint == 'web.run_new' %}active{% endif %}">New Run</a>
+            <a href="{{ url_for('web.manual') }}" class="{% if request.endpoint == 'web.manual' %}active{% endif %}">Config</a>
         </nav>
     </header>
 

@@ -14,7 +14,6 @@ from enum import Enum
 
 class EventType(str, Enum):
     # Run lifecycle
-    RUN_CREATED = "run_created"
     RUN_STARTED = "run_started"
     RUN_PAUSED = "run_paused"
     RUN_RESUMED = "run_resumed"

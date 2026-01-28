@@ -53,7 +53,7 @@ def create_app(profiles_dir: str = None, runs_dir: str = None) -> Flask:
     app.config['RUNS_DIR'] = runs_dir
     
     # Initialize routes with managers
-    init_routes(engine, profile_manager, storage_manager)
+    init_routes(engine, profile_manager, storage_manager, base_dir)
     
     # Register blueprint
     app.register_blueprint(web)

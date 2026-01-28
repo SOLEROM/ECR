@@ -115,7 +115,8 @@ class ExperimentEngine:
         self,
         profile_name: str,
         name: Optional[str] = None,
-        parameters: Optional[Dict[str, str]] = None
+        parameters: Optional[Dict[str, str]] = None,
+        selected_commands: Optional[List[str]] = None
     ) -> Optional[str]:
         """
         Create a new run.
@@ -125,6 +126,10 @@ class ExperimentEngine:
         profile = self.profile_manager.load_profile(profile_name)
         if not profile:
             return None
+        
+        # Default to all commands if none selected
+        if selected_commands is None:
+            selected_commands = list(profile.commands.keys())
         
         # Generate run ID
         run_id = self.storage_manager.generate_run_id(name)
@@ -137,7 +142,8 @@ class ExperimentEngine:
             profile_name=profile_name,
             status=RunStatus.CREATED.value,
             created_at=now,
-            parameters=parameters or {}
+            parameters=parameters or {},
+            selected_commands=selected_commands
         )
         
         # Create storage
@@ -145,13 +151,8 @@ class ExperimentEngine:
             run_id, manifest, profile.to_yaml()
         )
         
-        # Create event stream and log creation
-        events = EventStream(storage.events_path)
-        events.append(EventType.RUN_CREATED, {
-            'run_id': run_id,
-            'profile_name': profile_name,
-            'parameters': parameters or {}
-        })
+        # Create event stream (no event logged yet - starts with RUN_STARTED)
+        EventStream(storage.events_path)
         
         return run_id
     
