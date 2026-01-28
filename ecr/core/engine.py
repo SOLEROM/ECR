@@ -323,16 +323,17 @@ class ExperimentEngine:
         if not cmd_def:
             return {'success': False, 'error': f'Command not found: {command_name}'}
         
-        # Log command start
+        # Substitute parameters first so we can log the actual command
+        cmd = substitute_parameters(cmd_def.command, ctx.parameters)
+        
+        # Log command start with actual command
         ctx.events.append(EventType.COMMAND_STARTED, {
             'command_name': command_name,
+            'command': cmd,
             'run_location': cmd_def.run,
             'description': cmd_def.description
         })
-        self._notify('command', {'run_id': run_id, 'command_name': command_name, 'status': 'started'})
-        
-        # Substitute parameters
-        cmd = substitute_parameters(cmd_def.command, ctx.parameters)
+        self._notify('command', {'run_id': run_id, 'command_name': command_name, 'command': cmd, 'status': 'started'})
         
         # Execute on host or target
         if cmd_def.run == 'target':

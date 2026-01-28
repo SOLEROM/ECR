@@ -231,7 +231,8 @@
                 <div class="term-prompt">
                     <span class="term-time">{{ event.timestamp[11:19] }}</span>
                     <span class="term-location">{{ event.data.run_location|default('host') }}</span>
-                    <span class="term-cmd">$ {{ event.data.command|default(event.data.command_name)|default('') }}</span>
+                    <span class="term-name">{{ event.data.command_name|default('') }}</span>
+                    <span class="term-cmd">$ {{ event.data.command|default('') }}</span>
                 </div>
                 {% elif event.type == 'command_completed' or event.type == 'command_failed' %}
                 <div class="term-output {% if event.type == 'command_failed' %}term-error{% else %}term-success{% endif %}">
@@ -314,6 +315,12 @@
 
 .term-cmd {
     color: #c9d1d9;
+}
+
+.term-name {
+    color: #d2a8ff;
+    font-weight: 600;
+    margin-right: 8px;
 }
 
 .term-output {
@@ -525,11 +532,13 @@ async function pollEvents() {
             
             if (ev.type === 'command_started') {
                 const loc = ev.data.run_location || 'host';
-                const cmd = ev.data.command || ev.data.command_name || '';
+                const cmdName = ev.data.command_name || '';
+                const cmd = ev.data.command || '';
                 div.innerHTML = `
                     <div class="term-prompt">
                         <span class="term-time">${ev.timestamp.substring(11, 19)}</span>
                         <span class="term-location">${loc}</span>
+                        <span class="term-name">${cmdName}</span>
                         <span class="term-cmd">$ ${cmd}</span>
                     </div>
                 `;

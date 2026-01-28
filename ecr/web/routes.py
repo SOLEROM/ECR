@@ -358,11 +358,13 @@ def generate_html_report(ctx, events):
     for e in events:  # events are already in chronological order
         if e['type'] == 'command_started':
             loc = e['data'].get('run_location', 'host')
-            cmd = e['data'].get('command', e['data'].get('command_name', ''))
+            cmd_name = e['data'].get('command_name', '')
+            cmd = e['data'].get('command', '')
             event_html.append(f'''
                 <div class="term-prompt">
                     <span class="term-time">{e["timestamp"][11:19]}</span>
                     <span class="term-loc" style="background:{'#d29922' if loc=='target' else '#238636'}">{loc}</span>
+                    <span class="term-name">{cmd_name}</span>
                     <span class="term-cmd">$ {cmd}</span>
                 </div>''')
         elif e['type'] in ('command_completed', 'command_failed'):
@@ -450,6 +452,7 @@ def generate_html_report(ctx, events):
         .term-prompt {{ display:flex; align-items:center; gap:8px; color:#58a6ff; padding:4px 0; }}
         .term-time {{ color:#6e7681; font-size:11px; min-width:60px; }}
         .term-loc {{ color:#fff; padding:1px 6px; border-radius:3px; font-size:10px; text-transform:uppercase; }}
+        .term-name {{ color:#d2a8ff; font-weight:600; margin-right:8px; }}
         .term-cmd {{ color:#c9d1d9; }}
         .term-output {{ margin-left:68px; padding:8px 12px; background:#161b22; border-left:3px solid var(--green); border-radius:0 4px 4px 0; margin-bottom:8px; }}
         .term-output.term-error {{ border-left-color:var(--red); }}
