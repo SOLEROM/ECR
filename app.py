@@ -14,6 +14,7 @@ The web interface will be available at http://localhost:5000
 import argparse
 import os
 import sys
+import shutil
 
 from flask import Flask
 
@@ -21,38 +22,79 @@ from core import ProfileManager, StorageManager, ExperimentEngine
 from web.routes import web, init_routes
 
 
+def get_resource_path(relative_path):
+    """Get absolute path to resource, works for dev and PyInstaller."""
+    if hasattr(sys, '_MEIPASS'):
+        # PyInstaller creates a temp folder and stores path in _MEIPASS
+        return os.path.join(sys._MEIPASS, relative_path)
+    return os.path.join(os.path.dirname(os.path.abspath(__file__)), relative_path)
+
+
+def get_base_dir():
+    """Get the base directory for bundled resources."""
+    if hasattr(sys, '_MEIPASS'):
+        return sys._MEIPASS
+    return os.path.dirname(os.path.abspath(__file__))
+
+
+def get_working_dir():
+    """Get the working directory for user data (profiles, runs)."""
+    # When running as binary, use current working directory
+    # When running as script, use script directory
+    if hasattr(sys, '_MEIPASS'):
+        return os.getcwd()
+    return os.path.dirname(os.path.abspath(__file__))
+
+
+def setup_user_directories(profiles_dir, runs_dir):
+    """Setup user directories, copying sample profiles if needed."""
+    os.makedirs(profiles_dir, exist_ok=True)
+    os.makedirs(runs_dir, exist_ok=True)
+    
+    # If profiles dir is empty and we have bundled samples, copy them
+    if not os.listdir(profiles_dir):
+        bundled_profiles = get_resource_path('profiles')
+        if os.path.exists(bundled_profiles):
+            for f in os.listdir(bundled_profiles):
+                if f.endswith(('.yaml', '.yml')):
+                    src = os.path.join(bundled_profiles, f)
+                    dst = os.path.join(profiles_dir, f)
+                    shutil.copy2(src, dst)
+                    print(f"  Copied sample profile: {f}")
+
+
 def create_app(profiles_dir: str = None, runs_dir: str = None) -> Flask:
     """Create and configure the Flask application."""
     
-    # Determine base directory
-    base_dir = os.path.dirname(os.path.abspath(__file__))
+    # Determine directories
+    base_dir = get_base_dir()
+    working_dir = get_working_dir()
     
-    # Set default directories
+    # Set default directories (in working directory for user data)
     if profiles_dir is None:
-        profiles_dir = os.path.join(base_dir, 'profiles')
+        profiles_dir = os.path.join(working_dir, 'profiles')
     if runs_dir is None:
-        runs_dir = os.path.join(base_dir, 'runs')
+        runs_dir = os.path.join(working_dir, 'runs')
     
-    # Ensure directories exist
-    os.makedirs(profiles_dir, exist_ok=True)
-    os.makedirs(runs_dir, exist_ok=True)
+    # Setup user directories
+    setup_user_directories(profiles_dir, runs_dir)
     
     # Initialize managers
     profile_manager = ProfileManager(profiles_dir)
     storage_manager = StorageManager(runs_dir)
     engine = ExperimentEngine(storage_manager, profile_manager)
     
-    # Create Flask app
+    # Create Flask app with bundled templates/static
     app = Flask(__name__, 
-                template_folder=os.path.join(base_dir, 'web', 'templates'),
-                static_folder=os.path.join(base_dir, 'web', 'static'))
+                template_folder=get_resource_path(os.path.join('web', 'templates')),
+                static_folder=get_resource_path(os.path.join('web', 'static')))
     
     # Configuration
     app.config['SECRET_KEY'] = os.urandom(24)
     app.config['PROFILES_DIR'] = profiles_dir
     app.config['RUNS_DIR'] = runs_dir
     
-    # Initialize routes with managers
+    # Initialize routes with managers (use working_dir for config files access)
     init_routes(engine, profile_manager, storage_manager, base_dir)
     
     # Register blueprint
@@ -73,9 +115,10 @@ def main():
         formatter_class=argparse.RawDescriptionHelpFormatter,
         epilog="""
 Examples:
-    python app.py                          # Start with defaults (localhost:5000)
-    python app.py --port 8080              # Use custom port
-    python app.py --profiles-dir ~/ecr/profiles --runs-dir ~/ecr/runs
+    ecr                                     # Start with defaults (localhost:5000)
+    ecr --port 8080                         # Use custom port
+    ecr --host 0.0.0.0                      # Allow external connections
+    ecr --profiles-dir ~/ecr/profiles --runs-dir ~/ecr/runs
         """
     )
     
