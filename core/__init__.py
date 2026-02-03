@@ -10,6 +10,7 @@ from .profiles import (
 )
 from .storage import RunStorage, StorageManager, RunManifest, RunStatus
 from .engine import ExperimentEngine, RunContext
+from .sync import SyncManager, init_sync, get_sync_manager
 
 __all__ = [
     'EventStream', 'EventType', 'Event',
@@ -17,5 +18,6 @@ __all__ = [
     'TargetProfile', 'CommandDefinition', 'CollectorDefinition',
     'ProfileManager', 'substitute_parameters', 'get_command_parameters',
     'RunStorage', 'StorageManager', 'RunManifest', 'RunStatus',
-    'ExperimentEngine', 'RunContext'
+    'ExperimentEngine', 'RunContext',
+    'SyncManager', 'init_sync', 'get_sync_manager'
 ]

@@ -96,20 +96,33 @@ class ExperimentEngine:
         self._active_runs: Dict[str, RunContext] = {}
         self._lock = threading.RLock()
         
-        # Event callbacks for UI updates
-        self._event_callbacks: List[Callable[[str, Any], None]] = []
+        # Event callbacks for UI updates (receives run_id, event_dict)
+        self._event_callbacks: List[Callable[[str, Dict], None]] = []
     
-    def add_event_callback(self, callback: Callable[[str, Any], None]):
+    def add_event_callback(self, callback: Callable[[str, Dict], None]):
         """Add callback for real-time event notifications."""
         self._event_callbacks.append(callback)
     
-    def _notify(self, event_type: str, data: Any):
-        """Notify all callbacks of an event."""
+    def _notify_event(self, run_id: str, event):
+        """Notify all callbacks of a new event."""
+        event_dict = {
+            'seq': event.seq,
+            'timestamp': event.timestamp,
+            'type': event.event_type,
+            'data': event.data
+        }
+        if event.user:
+            event_dict['user'] = event.user
+            
         for callback in self._event_callbacks:
             try:
-                callback(event_type, data)
+                callback(run_id, event_dict)
             except Exception as e:
                 print(f"Event callback error: {e}")
+    
+    def _notify(self, event_type: str, data: Any):
+        """Legacy notify - kept for compatibility."""
+        pass
     
     def create_run(
         self,
@@ -198,21 +211,21 @@ class ExperimentEngine:
             
             # Create SSH client with event callbacks (for target commands)
             def on_connect():
-                ctx.events.append(EventType.CONNECTION_ESTABLISHED, {
+                event = ctx.events.append(EventType.CONNECTION_ESTABLISHED, {
                     'host': ctx.profile.connection.host
                 })
-                self._notify('connection', {'status': 'connected', 'run_id': run_id})
+                self._notify_event(run_id, event)
             
             def on_disconnect(reason):
-                ctx.events.append(EventType.CONNECTION_LOST, {'reason': reason})
-                self._notify('connection', {'status': 'disconnected', 'run_id': run_id, 'reason': reason})
+                event = ctx.events.append(EventType.CONNECTION_LOST, {'reason': reason})
+                self._notify_event(run_id, event)
             
             def on_retry(attempt, error):
-                ctx.events.append(EventType.CONNECTION_RETRY, {
+                event = ctx.events.append(EventType.CONNECTION_RETRY, {
                     'attempt': attempt,
                     'error': error
                 })
-                self._notify('connection', {'status': 'retrying', 'run_id': run_id, 'attempt': attempt})
+                self._notify_event(run_id, event)
             
             conn = ctx.profile.connection
             ctx.ssh = SSHClientWrapper(
@@ -237,15 +250,15 @@ class ExperimentEngine:
             ctx.storage.save_manifest(ctx.manifest)
             
             if was_paused:
-                ctx.events.append(EventType.RUN_RESUMED, {})
+                event = ctx.events.append(EventType.RUN_RESUMED, {})
             else:
-                ctx.events.append(EventType.RUN_STARTED, {})
+                event = ctx.events.append(EventType.RUN_STARTED, {})
+            self._notify_event(run_id, event)
             
             ctx.is_running = True
             ctx.is_paused = False
             self._active_runs[run_id] = ctx
             
-            self._notify('run_status', {'run_id': run_id, 'status': 'running'})
             return True
     
     def pause_run(self, run_id: str) -> bool:
@@ -263,9 +276,9 @@ class ExperimentEngine:
             ctx.is_paused = True
             ctx.manifest.status = RunStatus.PAUSED.value
             ctx.storage.save_manifest(ctx.manifest)
-            ctx.events.append(EventType.RUN_PAUSED, {})
+            event = ctx.events.append(EventType.RUN_PAUSED, {})
+            self._notify_event(run_id, event)
             
-            self._notify('run_status', {'run_id': run_id, 'status': 'paused'})
             return True
     
     def complete_run(self, run_id: str) -> bool:
@@ -289,15 +302,21 @@ class ExperimentEngine:
             ctx.manifest.status = RunStatus.COMPLETED.value
             ctx.manifest.completed_at = datetime.now(timezone.utc).isoformat()
             ctx.storage.save_manifest(ctx.manifest)
-            ctx.events.append(EventType.RUN_COMPLETED, {})
+            event = ctx.events.append(EventType.RUN_COMPLETED, {})
+            self._notify_event(run_id, event)
             
             if run_id in self._active_runs:
                 del self._active_runs[run_id]
             
-            self._notify('run_status', {'run_id': run_id, 'status': 'completed'})
             return True
     
-    def set_parameter(self, run_id: str, name: str, value: str) -> bool:
+    def set_parameter(
+        self, 
+        run_id: str, 
+        name: str, 
+        value: str,
+        user: Optional[Dict[str, str]] = None
+    ) -> bool:
         """Set a parameter value for a run."""
         ctx = self.get_run_context(run_id)
         if not ctx:
@@ -306,14 +325,25 @@ class ExperimentEngine:
         ctx.parameters[name] = value
         ctx.manifest.parameters[name] = value
         ctx.storage.save_manifest(ctx.manifest)
-        ctx.events.append(EventType.PARAMETER_SET, {'name': name, 'value': value})
+        event = ctx.events.append(EventType.PARAMETER_SET, {'name': name, 'value': value}, user=user)
+        self._notify_event(run_id, event)
         return True
     
-    def execute_command(self, run_id: str, command_name: str) -> Dict[str, Any]:
+    def execute_command(
+        self, 
+        run_id: str, 
+        command_name: str,
+        user: Optional[Dict[str, str]] = None
+    ) -> Dict[str, Any]:
         """
         Execute a single command by name.
         Runs on host or target based on command definition.
         Returns results dict with success status and outputs.
+        
+        Args:
+            run_id: Run identifier
+            command_name: Name of command to execute
+            user: Optional user info {username, color} who triggered the command
         """
         ctx = self._active_runs.get(run_id)
         if not ctx or not ctx.is_running:
@@ -326,24 +356,25 @@ class ExperimentEngine:
         # Substitute parameters first so we can log the actual command
         cmd = substitute_parameters(cmd_def.command, ctx.parameters)
         
-        # Log command start with actual command
-        ctx.events.append(EventType.COMMAND_STARTED, {
+        # Log command start with actual command and user info
+        event = ctx.events.append(EventType.COMMAND_STARTED, {
             'command_name': command_name,
             'command': cmd,
             'run_location': cmd_def.run,
             'description': cmd_def.description
-        })
-        self._notify('command', {'run_id': run_id, 'command_name': command_name, 'command': cmd, 'status': 'started'})
+        }, user=user)
+        self._notify_event(run_id, event)
         
         # Execute on host or target
         if cmd_def.run == 'target':
             # Ensure SSH connection
             if not ctx.ssh.is_connected:
                 if not ctx.ssh.connect():
-                    ctx.events.append(EventType.COMMAND_FAILED, {
+                    event = ctx.events.append(EventType.COMMAND_FAILED, {
                         'command_name': command_name,
                         'error': 'SSH connection failed'
                     })
+                    self._notify_event(run_id, event)
                     return {'success': False, 'error': 'SSH connection failed'}
             
             result = ctx.ssh.execute(cmd, timeout=cmd_def.timeout)
@@ -364,15 +395,11 @@ class ExperimentEngine:
         success = result.success
         
         if success:
-            ctx.events.append(EventType.COMMAND_COMPLETED, cmd_result)
+            event = ctx.events.append(EventType.COMMAND_COMPLETED, cmd_result)
         else:
-            ctx.events.append(EventType.COMMAND_FAILED, cmd_result)
+            event = ctx.events.append(EventType.COMMAND_FAILED, cmd_result)
         
-        self._notify('command', {
-            'run_id': run_id,
-            **cmd_result,
-            'status': 'completed' if success else 'failed'
-        })
+        self._notify_event(run_id, event)
         
         # Pull artifacts (only for target commands with artifacts)
         artifacts = []
@@ -380,7 +407,8 @@ class ExperimentEngine:
             for artifact_template in cmd_def.artifacts:
                 remote_path = substitute_parameters(artifact_template, ctx.parameters)
                 
-                ctx.events.append(EventType.ARTIFACT_PULL_STARTED, {'remote_path': remote_path})
+                event = ctx.events.append(EventType.ARTIFACT_PULL_STARTED, {'remote_path': remote_path})
+                self._notify_event(run_id, event)
                 
                 # Create temp local path
                 temp_path = os.path.join(ctx.storage.artifacts_dir, 
@@ -401,13 +429,15 @@ class ExperimentEngine:
                     ctx.manifest.artifacts.append(artifact_info)
                     ctx.storage.save_manifest(ctx.manifest)
                     
-                    ctx.events.append(EventType.ARTIFACT_PULLED, artifact_info)
+                    event = ctx.events.append(EventType.ARTIFACT_PULLED, artifact_info)
+                    self._notify_event(run_id, event)
                     artifacts.append(artifact_info)
                 else:
-                    ctx.events.append(EventType.ARTIFACT_PULL_FAILED, {
+                    event = ctx.events.append(EventType.ARTIFACT_PULL_FAILED, {
                         'remote_path': remote_path,
                         'error': error
                     })
+                    self._notify_event(run_id, event)
         
         return {
             'success': success,
@@ -447,10 +477,11 @@ class ExperimentEngine:
         )
         
         def collector_loop():
-            ctx.events.append(EventType.COLLECTOR_STARTED, {
+            event = ctx.events.append(EventType.COLLECTOR_STARTED, {
                 'collector': collector_name,
                 'run_location': coll_def.run
             })
+            self._notify_event(run_id, event)
             
             while not stop_event.is_set():
                 cmd = substitute_parameters(coll_def.command, ctx.parameters)
@@ -461,27 +492,23 @@ class ExperimentEngine:
                     result = execute_host_command(cmd, timeout=coll_def.timeout)
                 
                 if result.success:
-                    ctx.events.append(EventType.COLLECTOR_OUTPUT, {
+                    event = ctx.events.append(EventType.COLLECTOR_OUTPUT, {
                         'collector': collector_name,
                         'stdout': result.stdout,
                         'stderr': result.stderr
                     })
                 else:
-                    ctx.events.append(EventType.COLLECTOR_ERROR, {
+                    event = ctx.events.append(EventType.COLLECTOR_ERROR, {
                         'collector': collector_name,
                         'error': result.stderr or 'Command failed'
                     })
                 
-                self._notify('collector', {
-                    'run_id': run_id,
-                    'collector': collector_name,
-                    'output': result.stdout,
-                    'success': result.success
-                })
+                self._notify_event(run_id, event)
                 
                 stop_event.wait(coll_def.interval)
             
-            ctx.events.append(EventType.COLLECTOR_STOPPED, {'collector': collector_name})
+            event = ctx.events.append(EventType.COLLECTOR_STOPPED, {'collector': collector_name})
+            self._notify_event(run_id, event)
         
         thread = threading.Thread(target=collector_loop, daemon=True)
         collector.thread = thread
@@ -489,11 +516,6 @@ class ExperimentEngine:
         ctx.collectors[collector_name] = collector
         thread.start()
         
-        self._notify('collector_status', {
-            'run_id': run_id,
-            'collector': collector_name,
-            'status': 'started'
-        })
         return True
     
     def stop_collector(self, run_id: str, collector_name: str) -> bool:
@@ -509,20 +531,21 @@ class ExperimentEngine:
         collector.stop_event.set()
         collector.running = False
         
-        self._notify('collector_status', {
-            'run_id': run_id,
-            'collector': collector_name,
-            'status': 'stopped'
-        })
         return True
     
-    def add_note(self, run_id: str, note: str) -> bool:
+    def add_note(
+        self, 
+        run_id: str, 
+        note: str,
+        user: Optional[Dict[str, str]] = None
+    ) -> bool:
         """Add an operator note to a run."""
         ctx = self.get_run_context(run_id)
         if not ctx:
             return False
         
-        ctx.events.append(EventType.NOTE, {'text': note})
+        event = ctx.events.append(EventType.NOTE, {'text': note}, user=user)
+        self._notify_event(run_id, event)
         return True
     
     def get_events(self, run_id: str, after_seq: int = 0) -> List[Dict[str, Any]]:
@@ -531,15 +554,19 @@ class ExperimentEngine:
         if not ctx:
             return []
         
-        return [
-            {
+        events = []
+        for e in ctx.events.iter_events(after_seq):
+            event_dict = {
                 'seq': e.seq,
                 'timestamp': e.timestamp,
                 'type': e.event_type,
                 'data': e.data
             }
-            for e in ctx.events.iter_events(after_seq)
-        ]
+            if e.user:
+                event_dict['user'] = e.user
+            events.append(event_dict)
+        
+        return events
     
     def export_run(self, run_id: str) -> Optional[str]:
         """Create a zip archive of a run. Returns archive path."""
