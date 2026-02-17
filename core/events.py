@@ -67,9 +67,14 @@ class Event:
     timestamp: str
     event_type: str
     data: Dict[str, Any]
+    user: Optional[Dict[str, str]] = None  # {username, color} of who triggered
     
     def to_json(self) -> str:
-        return json.dumps(asdict(self), ensure_ascii=False)
+        d = asdict(self)
+        # Remove None user to keep JSON clean
+        if d['user'] is None:
+            del d['user']
+        return json.dumps(d, ensure_ascii=False)
     
     @classmethod
     def from_json(cls, line: str) -> 'Event':
@@ -78,7 +83,8 @@ class Event:
             seq=d['seq'],
             timestamp=d['timestamp'],
             event_type=d['event_type'],
-            data=d['data']
+            data=d['data'],
+            user=d.get('user')
         )
 
 
@@ -109,10 +115,20 @@ class EventStream:
             pass
         return count
     
-    def append(self, event_type: EventType, data: Optional[Dict[str, Any]] = None) -> Event:
+    def append(
+        self, 
+        event_type: EventType, 
+        data: Optional[Dict[str, Any]] = None,
+        user: Optional[Dict[str, str]] = None
+    ) -> Event:
         """
         Append a new event to the stream.
         Returns the created event.
+        
+        Args:
+            event_type: Type of event
+            data: Event data payload
+            user: Optional user info {username, color} who triggered the event
         """
         with self._lock:
             self._seq += 1
@@ -120,7 +136,8 @@ class EventStream:
                 seq=self._seq,
                 timestamp=datetime.now(timezone.utc).isoformat(),
                 event_type=event_type.value,
-                data=data or {}
+                data=data or {},
+                user=user
             )
             
             # Append to file

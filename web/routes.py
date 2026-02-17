@@ -1,5 +1,6 @@
 """
 Flask routes for ECR web interface.
+Supports multi-user collaboration via WebSocket sync.
 """
 
 import os
@@ -7,7 +8,7 @@ import json
 import markdown
 from flask import (
     Blueprint, render_template, request, jsonify, 
-    redirect, url_for, send_file, Response
+    redirect, url_for, send_file, Response, session
 )
 from datetime import datetime
 
@@ -16,17 +17,53 @@ engine = None
 profile_manager = None
 storage_manager = None
 app_root = None
+sync_manager = None
 
 web = Blueprint('web', __name__)
 
 
-def init_routes(eng, prof_mgr, stor_mgr, root_dir):
+def init_routes(eng, prof_mgr, stor_mgr, root_dir, sync_mgr=None):
     """Initialize routes with engine and managers."""
-    global engine, profile_manager, storage_manager, app_root
+    global engine, profile_manager, storage_manager, app_root, sync_manager
     engine = eng
     profile_manager = prof_mgr
     storage_manager = stor_mgr
     app_root = root_dir
+    sync_manager = sync_mgr
+    
+    # Hook up engine to broadcast events via sync_manager
+    if sync_manager:
+        def on_engine_event(run_id, event_dict):
+            """Callback when engine generates an event - broadcast to all clients."""
+            sync_manager.broadcast_new_event(run_id, event_dict)
+        
+        engine.add_event_callback(on_engine_event)
+
+
+def get_current_user():
+    """Get current user info from request/session."""
+    # Try to get user from socket session via request header
+    user_header = request.headers.get('X-ECR-User')
+    if user_header:
+        try:
+            return json.loads(user_header)
+        except:
+            pass
+    
+    # Try session
+    if 'username' in session:
+        return {
+            'username': session.get('username', 'Anonymous'),
+            'color': session.get('color', '#58a6ff')
+        }
+    
+    return None
+
+
+def broadcast_event(run_id: str, event: dict):
+    """Broadcast event to all clients viewing this run."""
+    if sync_manager:
+        sync_manager.broadcast_new_event(run_id, event)
 
 
 # ============ Dashboard ============
@@ -214,10 +251,17 @@ def run_view(run_id):
             cname for cname, c in active_ctx.collectors.items() if c.running
         ]
     
+    # Get connected users for this run
+    connected_users = []
+    if sync_manager:
+        connected_users = sync_manager.get_run_users(run_id)
+    
     return render_template('run_view.html', 
                           ctx=ctx, 
                           events=events,
-                          active_collectors=active_collectors)
+                          active_collectors=active_collectors,
+                          connected_users=connected_users,
+                          multiuser_enabled=sync_manager is not None)
 
 
 @web.route('/api/runs/<run_id>/start', methods=['POST'])
@@ -246,11 +290,16 @@ def run_execute_command(run_id):
     """Execute a command."""
     data = request.json or {}
     command_name = data.get('command')
+    user = data.get('user')  # User info passed from client
     
     if not command_name:
         return jsonify({'success': False, 'error': 'No command specified'}), 400
     
-    result = engine.execute_command(run_id, command_name)
+    # Broadcast that command is being executed
+    if sync_manager and user:
+        sync_manager.broadcast_command_executing(run_id, command_name, user)
+    
+    result = engine.execute_command(run_id, command_name, user=user)
     return jsonify(result)
 
 
@@ -260,11 +309,12 @@ def run_set_parameter(run_id):
     data = request.json or {}
     pname = data.get('name')
     value = data.get('value', '')
+    user = data.get('user')
     
     if not pname:
         return jsonify({'success': False, 'error': 'No parameter name specified'}), 400
     
-    success = engine.set_parameter(run_id, pname, value)
+    success = engine.set_parameter(run_id, pname, value, user=user)
     return jsonify({'success': success})
 
 
@@ -299,8 +349,9 @@ def run_add_note(run_id):
     """Add a note to a run."""
     data = request.json or {}
     note = data.get('note', '')
+    user = data.get('user')
     
-    success = engine.add_note(run_id, note)
+    success = engine.add_note(run_id, note, user=user)
     return jsonify({'success': success})
 
 

@@ -5,6 +5,8 @@ ECR - Experiment Control & Record
 A controller-only experiment orchestration and recording framework
 for edge AI field experiments on embedded Linux targets.
 
+Supports multiple users collaborating on the same experiment in real-time.
+
 Usage:
     python app.py [--host HOST] [--port PORT] [--profiles-dir DIR] [--runs-dir DIR]
 
@@ -17,8 +19,9 @@ import sys
 import shutil
 
 from flask import Flask
+from flask_socketio import SocketIO
 
-from core import ProfileManager, StorageManager, ExperimentEngine
+from core import ProfileManager, StorageManager, ExperimentEngine, init_sync
 from web.routes import web, init_routes
 
 
@@ -63,8 +66,8 @@ def setup_user_directories(profiles_dir, runs_dir):
                     print(f"  Copied sample profile: {f}")
 
 
-def create_app(profiles_dir: str = None, runs_dir: str = None) -> Flask:
-    """Create and configure the Flask application."""
+def create_app(profiles_dir: str = None, runs_dir: str = None) -> tuple:
+    """Create and configure the Flask application with SocketIO."""
     
     # Determine directories
     base_dir = get_base_dir()
@@ -94,8 +97,14 @@ def create_app(profiles_dir: str = None, runs_dir: str = None) -> Flask:
     app.config['PROFILES_DIR'] = profiles_dir
     app.config['RUNS_DIR'] = runs_dir
     
-    # Initialize routes with managers (use working_dir for config files access)
-    init_routes(engine, profile_manager, storage_manager, base_dir)
+    # Initialize SocketIO with gevent for WebSocket support
+    socketio = SocketIO(app, cors_allowed_origins="*", async_mode='gevent')
+    
+    # Initialize sync manager for multi-user collaboration
+    sync_manager = init_sync(socketio)
+    
+    # Initialize routes with managers
+    init_routes(engine, profile_manager, storage_manager, base_dir, sync_manager)
     
     # Register blueprint
     app.register_blueprint(web)
@@ -104,8 +113,9 @@ def create_app(profiles_dir: str = None, runs_dir: str = None) -> Flask:
     app.engine = engine
     app.profile_manager = profile_manager
     app.storage_manager = storage_manager
+    app.sync_manager = sync_manager
     
-    return app
+    return app, socketio
 
 
 def main():
@@ -150,7 +160,7 @@ Examples:
     args = parser.parse_args()
     
     # Create app
-    app = create_app(
+    app, socketio = create_app(
         profiles_dir=args.profiles_dir,
         runs_dir=args.runs_dir
     )
@@ -160,24 +170,26 @@ Examples:
 ╔═══════════════════════════════════════════════════════════════╗
 ║                                                               ║
 ║   ECR - Experiment Control & Record                          ║
+║   Multi-User Collaborative Mode (WebSocket)                   ║
 ║                                                               ║
 ║   Web Interface: http://{args.host}:{args.port:<5}                        ║
 ║                                                               ║
 ║   Profiles: {app.config['PROFILES_DIR']:<43} ║
 ║   Runs:     {app.config['RUNS_DIR']:<43} ║
 ║                                                               ║
+║   Share URL with team members to collaborate in real-time!    ║
 ║   Press Ctrl+C to stop                                        ║
 ║                                                               ║
 ╚═══════════════════════════════════════════════════════════════╝
 """)
     
-    # Run the server
+    # Run the server with SocketIO (WebSocket support)
     try:
-        app.run(
+        socketio.run(
+            app,
             host=args.host,
             port=args.port,
-            debug=args.debug,
-            threaded=True
+            debug=args.debug
         )
     except KeyboardInterrupt:
         print("\nShutting down...")

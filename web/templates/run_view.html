@@ -39,60 +39,42 @@
     </div>
 </div>
 
-<div class="grid grid-3 mb-24">
-    <!-- Info Card -->
-    <div class="card">
-        <div class="card-header">
-            <h3 class="card-title">Run Info</h3>
+{% if multiuser_enabled %}
+<div class="card mb-16" id="users-bar">
+    <div class="flex justify-between items-center" style="padding: 8px 16px;">
+        <div class="flex items-center gap-8">
+            <span class="text-muted">Connected:</span>
+            <div id="connected-users" class="flex gap-4"></div>
         </div>
+        <div class="flex items-center gap-8">
+            <input type="text" id="username-input" class="form-input" placeholder="Your name" style="width: 120px; padding: 4px 8px; font-size: 12px;">
+            <button class="btn btn-sm" onclick="setUsername()">Set Name</button>
+        </div>
+    </div>
+</div>
+{% endif %}
+
+<div class="grid grid-3 mb-24">
+    <div class="card">
+        <div class="card-header"><h3 class="card-title">Run Info</h3></div>
         <div class="card-body">
             <table class="table">
-                <tr>
-                    <td class="text-secondary">Created</td>
-                    <td>{{ ctx.manifest.created_at[:19].replace('T', ' ') }}</td>
-                </tr>
-                {% if ctx.manifest.started_at %}
-                <tr>
-                    <td class="text-secondary">Started</td>
-                    <td>{{ ctx.manifest.started_at[:19].replace('T', ' ') }}</td>
-                </tr>
-                {% endif %}
-                {% if ctx.manifest.completed_at %}
-                <tr>
-                    <td class="text-secondary">Completed</td>
-                    <td>{{ ctx.manifest.completed_at[:19].replace('T', ' ') }}</td>
-                </tr>
-                {% endif %}
-                <tr>
-                    <td class="text-secondary">Run ID</td>
-                    <td><code style="font-size: 11px;">{{ ctx.run_id }}</code></td>
-                </tr>
+                <tr><td class="text-secondary">Created</td><td>{{ ctx.manifest.created_at[:19].replace('T', ' ') }}</td></tr>
+                {% if ctx.manifest.started_at %}<tr><td class="text-secondary">Started</td><td>{{ ctx.manifest.started_at[:19].replace('T', ' ') }}</td></tr>{% endif %}
+                {% if ctx.manifest.completed_at %}<tr><td class="text-secondary">Completed</td><td>{{ ctx.manifest.completed_at[:19].replace('T', ' ') }}</td></tr>{% endif %}
+                <tr><td class="text-secondary">Run ID</td><td><code style="font-size: 11px;">{{ ctx.run_id }}</code></td></tr>
             </table>
         </div>
     </div>
-
-    <!-- Parameters Card -->
     <div class="card">
         <div class="card-header">
             <h3 class="card-title">Parameters</h3>
-            {% if ctx.manifest.status == 'running' %}
-            <button class="btn btn-sm" onclick="showAddParam()">+ Add</button>
-            {% endif %}
+            {% if ctx.manifest.status == 'running' %}<button class="btn btn-sm" onclick="showAddParam()">+ Add</button>{% endif %}
         </div>
         <div class="card-body">
             {% if ctx.manifest.parameters %}
-            <table class="table">
-                {% for key, value in ctx.manifest.parameters.items() %}
-                <tr>
-                    <td class="text-secondary">{{ key }}</td>
-                    <td><code>{{ value }}</code></td>
-                </tr>
-                {% endfor %}
-            </table>
-            {% else %}
-            <p class="text-muted">No parameters set.</p>
-            {% endif %}
-            
+            <table class="table">{% for key, value in ctx.manifest.parameters.items() %}<tr><td class="text-secondary">{{ key }}</td><td><code>{{ value }}</code></td></tr>{% endfor %}</table>
+            {% else %}<p class="text-muted">No parameters set.</p>{% endif %}
             <div id="add-param-form" style="display: none;" class="mt-16">
                 <div class="flex gap-8">
                     <input type="text" id="param-name" class="form-input" placeholder="name" style="width: 100px;">
@@ -102,110 +84,56 @@
             </div>
         </div>
     </div>
-
-    <!-- Artifacts Card -->
     <div class="card">
-        <div class="card-header">
-            <h3 class="card-title">Artifacts</h3>
-            <span class="badge">{{ ctx.manifest.artifacts|length }}</span>
-        </div>
+        <div class="card-header"><h3 class="card-title">Artifacts</h3><span class="badge">{{ ctx.manifest.artifacts|length }}</span></div>
         <div class="card-body" style="max-height: 200px; overflow-y: auto;">
-            {% if ctx.manifest.artifacts %}
-            {% for artifact in ctx.manifest.artifacts %}
-            <div class="mb-8">
-                <a href="{{ url_for('web.run_artifact', run_id=ctx.run_id, artifact_path=artifact.local_path) }}" class="text-secondary" style="font-size: 12px;">
-                    📄 {{ artifact.local_path.split('/')[-1] }}
-                </a>
-                <div class="text-muted" style="font-size: 11px;">from {{ artifact.remote_path }}</div>
-            </div>
-            {% endfor %}
-            {% else %}
-            <p class="text-muted">No artifacts collected yet.</p>
-            {% endif %}
+            {% if ctx.manifest.artifacts %}{% for artifact in ctx.manifest.artifacts %}
+            <div class="mb-8"><a href="{{ url_for('web.run_artifact', run_id=ctx.run_id, artifact_path=artifact.local_path) }}" class="text-secondary" style="font-size: 12px;">📄 {{ artifact.local_path.split('/')[-1] }}</a><div class="text-muted" style="font-size: 11px;">from {{ artifact.remote_path }}</div></div>
+            {% endfor %}{% else %}<p class="text-muted">No artifacts collected yet.</p>{% endif %}
         </div>
     </div>
 </div>
 
 <div class="grid grid-2 mb-24">
-    <!-- Commands Card -->
     <div class="card">
-        <div class="card-header">
-            <h3 class="card-title">Commands</h3>
-            <span class="badge badge-info">{{ ctx.manifest.selected_commands|length if ctx.manifest.selected_commands else ctx.profile.commands|length }}</span>
-        </div>
+        <div class="card-header"><h3 class="card-title">Commands</h3><span class="badge badge-info">{{ ctx.manifest.selected_commands|length if ctx.manifest.selected_commands else ctx.profile.commands|length }}</span></div>
         <div class="card-body" style="max-height: 400px; overflow-y: auto;">
             {% set available_commands = ctx.manifest.selected_commands if ctx.manifest.selected_commands else ctx.profile.commands.keys()|list %}
-            {% for cmd_name in available_commands %}
-                {% set cmd = ctx.profile.commands.get(cmd_name) %}
-                {% if cmd %}
-                <div class="flex justify-between items-center mb-12" style="padding-bottom: 12px; border-bottom: 1px solid var(--border-color);">
-                    <div>
-                        <strong>{{ cmd_name }}</strong>
-                        {% if cmd.run == 'target' %}
-                        <span class="badge badge-warning" style="margin-left: 8px;">target</span>
-                        {% else %}
-                        <span class="badge badge-success" style="margin-left: 8px;">host</span>
-                        {% endif %}
-                        {% if cmd.description %}
-                        <div class="text-muted" style="font-size: 12px;">{{ cmd.description }}</div>
-                        {% endif %}
-                    </div>
-                    {% if ctx.manifest.status == 'running' %}
-                    <button class="btn btn-sm btn-primary" onclick="executeCommand('{{ cmd_name }}')">Run</button>
-                    {% endif %}
+            {% for cmd_name in available_commands %}{% set cmd = ctx.profile.commands.get(cmd_name) %}{% if cmd %}
+            <div class="flex justify-between items-center mb-12 command-row" data-command="{{ cmd_name }}" style="padding-bottom: 12px; border-bottom: 1px solid var(--border-color);">
+                <div>
+                    <strong>{{ cmd_name }}</strong>
+                    {% if cmd.run == 'target' %}<span class="badge badge-warning" style="margin-left: 8px;">target</span>{% else %}<span class="badge badge-success" style="margin-left: 8px;">host</span>{% endif %}
+                    {% if cmd.description %}<div class="text-muted" style="font-size: 12px;">{{ cmd.description }}</div>{% endif %}
+                    <div class="executing-indicator" style="display: none; font-size: 11px; color: var(--accent-color);"></div>
                 </div>
-                {% endif %}
-            {% endfor %}
+                {% if ctx.manifest.status == 'running' %}<button class="btn btn-sm btn-primary cmd-btn" onclick="executeCommand('{{ cmd_name }}')">Run</button>{% endif %}
+            </div>
+            {% endif %}{% endfor %}
         </div>
     </div>
-
-    <!-- Background Collectors Card -->
     <div class="card">
-        <div class="card-header">
-            <h3 class="card-title">Background Collectors</h3>
-        </div>
+        <div class="card-header"><h3 class="card-title">Background Collectors</h3></div>
         <div class="card-body">
-            {% if ctx.profile.background_collectors %}
-            {% for coll_name, coll in ctx.profile.background_collectors.items() %}
+            {% if ctx.profile.background_collectors %}{% for coll_name, coll in ctx.profile.background_collectors.items() %}
             <div class="flex justify-between items-center mb-12">
                 <div>
                     <strong>{{ coll_name }}</strong>
-                    {% if coll.run == 'target' %}
-                    <span class="badge badge-warning" style="margin-left: 8px;">target</span>
-                    {% else %}
-                    <span class="badge badge-success" style="margin-left: 8px;">host</span>
-                    {% endif %}
-                    <div class="text-muted" style="font-size: 12px;">
-                        every {{ coll.interval }}s
-                    </div>
+                    {% if coll.run == 'target' %}<span class="badge badge-warning" style="margin-left: 8px;">target</span>{% else %}<span class="badge badge-success" style="margin-left: 8px;">host</span>{% endif %}
+                    <div class="text-muted" style="font-size: 12px;">every {{ coll.interval }}s</div>
                 </div>
                 <div class="flex gap-8">
-                    {% if coll_name in active_collectors %}
-                    <span class="badge badge-success">● Active</span>
-                    {% if ctx.manifest.status == 'running' %}
-                    <button class="btn btn-sm btn-danger" onclick="stopCollector('{{ coll_name }}')">Stop</button>
-                    {% endif %}
-                    {% else %}
-                    <span class="badge">○ Stopped</span>
-                    {% if ctx.manifest.status == 'running' %}
-                    <button class="btn btn-sm btn-primary" onclick="startCollector('{{ coll_name }}')">Start</button>
-                    {% endif %}
-                    {% endif %}
+                    {% if coll_name in active_collectors %}<span class="badge badge-success">● Active</span>{% if ctx.manifest.status == 'running' %}<button class="btn btn-sm btn-danger" onclick="stopCollector('{{ coll_name }}')">Stop</button>{% endif %}
+                    {% else %}<span class="badge">○ Stopped</span>{% if ctx.manifest.status == 'running' %}<button class="btn btn-sm btn-primary" onclick="startCollector('{{ coll_name }}')">Start</button>{% endif %}{% endif %}
                 </div>
             </div>
-            {% endfor %}
-            {% else %}
-            <p class="text-muted">No background collectors defined in profile.</p>
-            {% endif %}
+            {% endfor %}{% else %}<p class="text-muted">No background collectors defined.</p>{% endif %}
         </div>
     </div>
 </div>
 
-<!-- Notes -->
 <div class="card mb-24">
-    <div class="card-header">
-        <h3 class="card-title">Add Note</h3>
-    </div>
+    <div class="card-header"><h3 class="card-title">Add Note</h3></div>
     <div class="card-body">
         <div class="flex gap-8">
             <input type="text" id="note-input" class="form-input" placeholder="Enter a note about this experiment...">
@@ -214,7 +142,6 @@
     </div>
 </div>
 
-<!-- Event Log (Terminal Style) -->
 <div class="card">
     <div class="card-header">
         <h3 class="card-title">Event Log</h3>
@@ -232,19 +159,14 @@
                     <span class="term-time">{{ event.timestamp[11:19] }}</span>
                     <span class="term-location">{{ event.data.run_location|default('host') }}</span>
                     <span class="term-name">{{ event.data.command_name|default('') }}</span>
+                    {% if event.user %}<span class="term-user" style="color: {{ event.user.color }}">{{ event.user.username }}</span>{% endif %}
                     <span class="term-cmd">$ {{ event.data.command|default('') }}</span>
                 </div>
                 {% elif event.type == 'command_completed' or event.type == 'command_failed' %}
                 <div class="term-output {% if event.type == 'command_failed' %}term-error{% else %}term-success{% endif %}">
                     {% if event.data.stdout %}<pre>{{ event.data.stdout }}</pre>{% endif %}
                     {% if event.data.stderr %}<pre class="stderr">{{ event.data.stderr }}</pre>{% endif %}
-                    <div class="term-status">
-                        {% if event.type == 'command_completed' %}
-                        ✓ exit {{ event.data.exit_code|default(0) }} ({{ "%.2f"|format(event.data.duration|default(0)) }}s)
-                        {% else %}
-                        ✗ exit {{ event.data.exit_code|default(1) }} ({{ "%.2f"|format(event.data.duration|default(0)) }}s)
-                        {% endif %}
-                    </div>
+                    <div class="term-status">{% if event.type == 'command_completed' %}✓ exit {{ event.data.exit_code|default(0) }}{% else %}✗ exit {{ event.data.exit_code|default(1) }}{% endif %} ({{ "%.2f"|format(event.data.duration|default(0)) }}s)</div>
                 </div>
                 {% elif event.type == 'collector_output' %}
                 <div class="term-collector">
@@ -255,12 +177,14 @@
                 {% elif event.type == 'note' %}
                 <div class="term-note">
                     <span class="term-time">{{ event.timestamp[11:19] }}</span>
+                    {% if event.user %}<span class="term-user" style="color: {{ event.user.color }}">{{ event.user.username }}</span>{% endif %}
                     📝 {{ event.data.text }}
                 </div>
                 {% else %}
                 <div class="term-event {% if 'started' in event.type %}term-info{% elif 'completed' in event.type or 'pulled' in event.type %}term-success{% elif 'failed' in event.type or 'error' in event.type %}term-error{% endif %}">
                     <span class="term-time">{{ event.timestamp[11:19] }}</span>
                     <span class="term-type">{{ event.type }}</span>
+                    {% if event.user %}<span class="term-user" style="color: {{ event.user.color }}">{{ event.user.username }}</span>{% endif %}
                     {% if event.data.command_name %}<span class="term-detail">{{ event.data.command_name }}</span>{% endif %}
                     {% if event.data.error %}<span class="term-detail term-error-text">{{ event.data.error }}</span>{% endif %}
                 </div>
@@ -272,354 +196,99 @@
 </div>
 
 <style>
-.terminal {
-    font-family: 'SF Mono', Monaco, 'Cascadia Code', 'Consolas', monospace;
-    font-size: 12px;
-    background: #0d1117;
-    border-radius: 6px;
-    padding: 12px;
-    max-height: 600px;
-    overflow-y: auto;
-}
-
-.term-entry {
-    margin-bottom: 8px;
-}
-
-.term-prompt {
-    display: flex;
-    align-items: center;
-    gap: 8px;
-    color: #58a6ff;
-    padding: 4px 0;
-}
-
-.term-time {
-    color: #6e7681;
-    font-size: 11px;
-    min-width: 60px;
-}
-
-.term-location {
-    background: #238636;
-    color: #fff;
-    padding: 1px 6px;
-    border-radius: 3px;
-    font-size: 10px;
-    text-transform: uppercase;
-}
-
-.term-location:contains('target') {
-    background: #d29922;
-}
-
-.term-cmd {
-    color: #c9d1d9;
-}
-
-.term-name {
-    color: #d2a8ff;
-    font-weight: 600;
-    margin-right: 8px;
-}
-
-.term-output {
-    margin-left: 68px;
-    padding: 8px 12px;
-    background: #161b22;
-    border-left: 3px solid #3fb950;
-    border-radius: 0 4px 4px 0;
-}
-
-.term-output.term-error {
-    border-left-color: #f85149;
-}
-
-.term-output pre {
-    margin: 0;
-    color: #c9d1d9;
-    white-space: pre-wrap;
-    word-break: break-all;
-}
-
-.term-output pre.stderr {
-    color: #f85149;
-}
-
-.term-status {
-    margin-top: 8px;
-    font-size: 11px;
-    color: #8b949e;
-}
-
+.terminal { font-family: 'SF Mono', Monaco, 'Consolas', monospace; font-size: 12px; background: #0d1117; border-radius: 6px; padding: 12px; max-height: 600px; overflow-y: auto; }
+.term-entry { margin-bottom: 8px; }
+.term-prompt { display: flex; align-items: center; gap: 8px; color: #58a6ff; padding: 4px 0; flex-wrap: wrap; }
+.term-time { color: #6e7681; font-size: 11px; min-width: 60px; }
+.term-location { background: #238636; color: #fff; padding: 1px 6px; border-radius: 3px; font-size: 10px; text-transform: uppercase; }
+.term-name { color: #d2a8ff; font-weight: 600; }
+.term-user { font-size: 11px; padding: 1px 6px; background: rgba(255,255,255,0.1); border-radius: 3px; }
+.term-cmd { color: #c9d1d9; }
+.term-output { margin-left: 68px; padding: 8px 12px; background: #161b22; border-left: 3px solid #3fb950; border-radius: 0 4px 4px 0; }
+.term-output.term-error { border-left-color: #f85149; }
+.term-output pre { margin: 0; color: #c9d1d9; white-space: pre-wrap; word-break: break-all; }
+.term-output pre.stderr { color: #f85149; }
+.term-status { margin-top: 8px; font-size: 11px; color: #8b949e; }
 .term-success .term-status { color: #3fb950; }
 .term-error .term-status { color: #f85149; }
-
-.term-collector {
-    display: flex;
-    align-items: flex-start;
-    gap: 8px;
-    padding: 4px 0;
-    color: #8b949e;
-}
-
-.term-collector pre {
-    margin: 0;
-    flex: 1;
-    color: #8b949e;
-}
-
-.term-badge {
-    background: #6e40c9;
-    color: #fff;
-    padding: 1px 6px;
-    border-radius: 3px;
-    font-size: 10px;
-}
-
-.term-note {
-    padding: 8px 12px;
-    background: #1c2128;
-    border-left: 3px solid #58a6ff;
-    border-radius: 0 4px 4px 0;
-    color: #c9d1d9;
-}
-
-.term-event {
-    display: flex;
-    align-items: center;
-    gap: 8px;
-    padding: 4px 0;
-    color: #8b949e;
-}
-
-.term-type {
-    font-weight: 500;
-}
-
+.term-collector { display: flex; align-items: flex-start; gap: 8px; padding: 4px 0; color: #8b949e; }
+.term-collector pre { margin: 0; flex: 1; color: #8b949e; }
+.term-badge { background: #6e40c9; color: #fff; padding: 1px 6px; border-radius: 3px; font-size: 10px; }
+.term-note { display: flex; align-items: center; gap: 8px; padding: 8px 12px; background: #1c2128; border-left: 3px solid #58a6ff; border-radius: 0 4px 4px 0; color: #c9d1d9; }
+.term-event { display: flex; align-items: center; gap: 8px; padding: 4px 0; color: #8b949e; }
+.term-type { font-weight: 500; }
 .term-info .term-type { color: #58a6ff; }
 .term-success .term-type { color: #3fb950; }
 .term-error .term-type { color: #f85149; }
-
-.term-detail {
-    color: #6e7681;
-}
-
-.term-error-text {
-    color: #f85149;
-}
+.term-detail { color: #6e7681; }
+.term-error-text { color: #f85149; }
+.user-avatar { width: 24px; height: 24px; border-radius: 50%; display: flex; align-items: center; justify-content: center; font-size: 11px; font-weight: 600; color: #fff; cursor: default; }
+.executing-indicator { animation: pulse 1s infinite; }
+@keyframes pulse { 0%, 100% { opacity: 1; } 50% { opacity: 0.5; } }
+@keyframes fadeInOut { 0% { opacity: 0; transform: translateY(10px); } 10% { opacity: 1; transform: translateY(0); } 90% { opacity: 1; } 100% { opacity: 0; } }
 </style>
 
+<script src="https://cdnjs.cloudflare.com/ajax/libs/socket.io/4.6.0/socket.io.min.js"></script>
 <script>
 const runId = '{{ ctx.run_id }}';
 let lastSeq = {{ events[-1].seq if events else 0 }};
-let sortAsc = false; // false = newest first (default)
+let sortAsc = false;
+let socket = null;
+let currentUser = { username: 'Anonymous', color: '#58a6ff' };
 
-// Sort toggle
-function toggleSort() {
-    sortAsc = !sortAsc;
-    const btn = document.getElementById('sort-btn');
-    btn.textContent = sortAsc ? '↓ Newest First' : '↑ Oldest First';
-    
-    const log = document.getElementById('event-log');
-    const entries = Array.from(log.querySelectorAll('.term-entry'));
-    
-    entries.sort((a, b) => {
-        const seqA = parseInt(a.dataset.seq);
-        const seqB = parseInt(b.dataset.seq);
-        return sortAsc ? seqA - seqB : seqB - seqA;
-    });
-    
-    entries.forEach(entry => log.appendChild(entry));
+{% if multiuser_enabled %}
+socket = io();
+socket.on('connect', function() { socket.emit('join_run', { run_id: runId }); });
+socket.on('user_info', function(data) { currentUser = { username: data.username, color: data.color }; if(document.getElementById('username-input')) document.getElementById('username-input').value = data.username; });
+socket.on('user_joined', function(data) { updateConnectedUsers(data.users); showNotification(data.username + ' joined', data.color); });
+socket.on('user_left', function(data) { updateConnectedUsers(data.users); });
+socket.on('user_renamed', function(data) { updateConnectedUsers(data.users || []); });
+socket.on('new_event', function(event) { addEventToLog(event); });
+socket.on('command_executing', function(data) { 
+    const row = document.querySelector('.command-row[data-command="'+data.command_name+'"]');
+    if (row) { const ind = row.querySelector('.executing-indicator'); if(ind) { ind.style.display='block'; ind.textContent='Running by '+data.user.username+'...'; }}
+});
+socket.on('status_changed', function(data) { location.reload(); });
+
+function updateConnectedUsers(users) {
+    const c = document.getElementById('connected-users'); if(!c) return;
+    c.innerHTML = users.map(u => '<div class="user-avatar" style="background:'+u.color+'" title="'+u.username+'">'+u.username.charAt(0).toUpperCase()+'</div>').join('');
 }
-
-// Run control
-async function startRun() {
-    const result = await apiCall(`/api/runs/${runId}/start`, 'POST');
-    if (result.success) location.reload();
-    else alert('Failed to start run: ' + (result.error || 'Unknown error'));
-}
-
-async function pauseRun() {
-    const result = await apiCall(`/api/runs/${runId}/pause`, 'POST');
-    if (result.success) location.reload();
-}
-
-async function completeRun() {
-    if (!confirm('Complete this run? This will stop all collectors and close the connection.')) return;
-    const result = await apiCall(`/api/runs/${runId}/complete`, 'POST');
-    if (result.success) location.reload();
-}
-
-async function deleteRun() {
-    if (!confirm('Delete this run? This cannot be undone.')) return;
-    const result = await apiCall(`/api/runs/${runId}`, 'DELETE');
-    if (result.success) window.location.href = '{{ url_for("web.dashboard") }}';
-}
-
-// Commands
-async function executeCommand(commandName) {
-    const btn = event.target;
-    btn.disabled = true;
-    btn.textContent = 'Running...';
-    
-    const result = await apiCall(`/api/runs/${runId}/command`, 'POST', { command: commandName });
-    
-    btn.disabled = false;
-    btn.textContent = 'Run';
-    
-    if (!result.success) {
-        alert('Command failed: ' + (result.error || 'Check event log'));
-    }
-    
-    pollEvents();
-}
-
-// Collectors
-async function startCollector(collName) {
-    const result = await apiCall(`/api/runs/${runId}/collector/start`, 'POST', { collector: collName });
-    if (result.success) location.reload();
-}
-
-async function stopCollector(collName) {
-    const result = await apiCall(`/api/runs/${runId}/collector/stop`, 'POST', { collector: collName });
-    if (result.success) location.reload();
-}
-
-// Parameters
-function showAddParam() {
-    document.getElementById('add-param-form').style.display = 'block';
-}
-
-async function addParameter() {
-    const pname = document.getElementById('param-name').value.trim();
-    const value = document.getElementById('param-value').value;
-    
-    if (!pname) return;
-    
-    const result = await apiCall(`/api/runs/${runId}/parameter`, 'POST', { name: pname, value: value });
-    if (result.success) location.reload();
-}
-
-// Notes
-async function addNote() {
-    const input = document.getElementById('note-input');
-    const note = input.value.trim();
-    
-    if (!note) return;
-    
-    const result = await apiCall(`/api/runs/${runId}/note`, 'POST', { note: note });
-    if (result.success) {
-        input.value = '';
-        pollEvents();
-    }
-}
-
-// Event polling
-async function pollEvents() {
-    const result = await fetch(`/api/runs/${runId}/events?after=${lastSeq}`);
-    const data = await result.json();
-    
-    if (data.events && data.events.length > 0) {
-        const log = document.getElementById('event-log');
-        
-        for (const ev of data.events) {
-            lastSeq = ev.seq;
-            
-            const div = document.createElement('div');
-            div.className = 'term-entry';
-            div.dataset.seq = ev.seq;
-            
-            if (ev.type === 'command_started') {
-                const loc = ev.data.run_location || 'host';
-                const cmdName = ev.data.command_name || '';
-                const cmd = ev.data.command || '';
-                div.innerHTML = `
-                    <div class="term-prompt">
-                        <span class="term-time">${ev.timestamp.substring(11, 19)}</span>
-                        <span class="term-location">${loc}</span>
-                        <span class="term-name">${cmdName}</span>
-                        <span class="term-cmd">$ ${cmd}</span>
-                    </div>
-                `;
-            } else if (ev.type === 'command_completed' || ev.type === 'command_failed') {
-                const isError = ev.type === 'command_failed';
-                const stdout = ev.data.stdout || '';
-                const stderr = ev.data.stderr || '';
-                const exitCode = ev.data.exit_code || 0;
-                const duration = (ev.data.duration || 0).toFixed(2);
-                div.innerHTML = `
-                    <div class="term-output ${isError ? 'term-error' : 'term-success'}">
-                        ${stdout ? `<pre>${stdout}</pre>` : ''}
-                        ${stderr ? `<pre class="stderr">${stderr}</pre>` : ''}
-                        <div class="term-status">
-                            ${isError ? '✗' : '✓'} exit ${exitCode} (${duration}s)
-                        </div>
-                    </div>
-                `;
-            } else if (ev.type === 'collector_output') {
-                div.innerHTML = `
-                    <div class="term-collector">
-                        <span class="term-time">${ev.timestamp.substring(11, 19)}</span>
-                        <span class="term-badge">${ev.data.collector}</span>
-                        <pre>${ev.data.stdout || ''}</pre>
-                    </div>
-                `;
-            } else if (ev.type === 'note') {
-                div.innerHTML = `
-                    <div class="term-note">
-                        <span class="term-time">${ev.timestamp.substring(11, 19)}</span>
-                        📝 ${ev.data.text}
-                    </div>
-                `;
-            } else {
-                let cssClass = '';
-                if (ev.type.includes('started')) cssClass = 'term-info';
-                else if (ev.type.includes('completed') || ev.type.includes('pulled')) cssClass = 'term-success';
-                else if (ev.type.includes('failed') || ev.type.includes('error')) cssClass = 'term-error';
-                
-                let detail = ev.data.command_name || '';
-                if (ev.data.error) detail = ev.data.error;
-                
-                div.innerHTML = `
-                    <div class="term-event ${cssClass}">
-                        <span class="term-time">${ev.timestamp.substring(11, 19)}</span>
-                        <span class="term-type">${ev.type}</span>
-                        ${detail ? `<span class="term-detail">${detail}</span>` : ''}
-                    </div>
-                `;
-            }
-            
-            // Insert based on sort order
-            if (sortAsc) {
-                log.appendChild(div);
-            } else {
-                log.insertBefore(div, log.firstChild);
-            }
-        }
-        
-        document.getElementById('event-count').textContent = `${lastSeq} events`;
-        
-        // Auto-scroll
-        if (!sortAsc) {
-            log.scrollTop = 0;
-        } else {
-            log.scrollTop = log.scrollHeight;
-        }
-    }
-}
-
-// Poll every 2 seconds if run is active
-{% if ctx.manifest.status == 'running' %}
-setInterval(pollEvents, 2000);
+function setUsername() { const n = document.getElementById('username-input').value.trim(); if(n && socket) { currentUser.username = n; socket.emit('set_username', { username: n }); }}
+function showNotification(msg, color) { const t = document.createElement('div'); t.style.cssText = 'position:fixed;bottom:20px;right:20px;background:'+(color||'#58a6ff')+';color:#fff;padding:8px 16px;border-radius:4px;font-size:12px;z-index:1000;animation:fadeInOut 2s forwards;'; t.textContent = msg; document.body.appendChild(t); setTimeout(() => t.remove(), 2000); }
 {% endif %}
 
-// Initial sort based on default (newest first)
-document.addEventListener('DOMContentLoaded', function() {
-    const log = document.getElementById('event-log');
-    const entries = Array.from(log.querySelectorAll('.term-entry'));
-    entries.sort((a, b) => parseInt(b.dataset.seq) - parseInt(a.dataset.seq));
-    entries.forEach(entry => log.appendChild(entry));
-});
+function toggleSort() { sortAsc = !sortAsc; document.getElementById('sort-btn').textContent = sortAsc ? '↓ Newest First' : '↑ Oldest First'; const log = document.getElementById('event-log'); const entries = Array.from(log.querySelectorAll('.term-entry')); entries.sort((a,b) => sortAsc ? parseInt(a.dataset.seq) - parseInt(b.dataset.seq) : parseInt(b.dataset.seq) - parseInt(a.dataset.seq)); entries.forEach(e => log.appendChild(e)); }
+
+async function apiCallWithUser(url, method='GET', data=null) { const opts = { method, headers: {'Content-Type':'application/json'} }; if(data) { data.user = currentUser; opts.body = JSON.stringify(data); } const r = await fetch(url, opts); return r.json(); }
+
+async function startRun() { const r = await apiCallWithUser('/api/runs/'+runId+'/start', 'POST', {}); if(r.success) location.reload(); else alert('Failed: '+(r.error||'Unknown')); }
+async function pauseRun() { const r = await apiCallWithUser('/api/runs/'+runId+'/pause', 'POST', {}); if(r.success) location.reload(); }
+async function completeRun() { if(!confirm('Complete this run?')) return; const r = await apiCallWithUser('/api/runs/'+runId+'/complete', 'POST', {}); if(r.success) location.reload(); }
+async function deleteRun() { if(!confirm('Delete this run?')) return; const r = await fetch('/api/runs/'+runId, {method:'DELETE'}); const d = await r.json(); if(d.success) window.location.href='{{ url_for("web.dashboard") }}'; }
+
+async function executeCommand(cmd) { const btn = event.target; btn.disabled = true; btn.textContent = 'Running...'; const r = await apiCallWithUser('/api/runs/'+runId+'/command', 'POST', {command: cmd}); btn.disabled = false; btn.textContent = 'Run'; const row = document.querySelector('.command-row[data-command="'+cmd+'"]'); if(row) { const ind = row.querySelector('.executing-indicator'); if(ind) ind.style.display = 'none'; } if(!r.success) alert('Failed: '+(r.error||'Check log')); if(!socket) pollEvents(); }
+async function startCollector(c) { const r = await apiCallWithUser('/api/runs/'+runId+'/collector/start', 'POST', {collector:c}); if(r.success) location.reload(); }
+async function stopCollector(c) { const r = await apiCallWithUser('/api/runs/'+runId+'/collector/stop', 'POST', {collector:c}); if(r.success) location.reload(); }
+function showAddParam() { document.getElementById('add-param-form').style.display = 'block'; }
+async function addParameter() { const n = document.getElementById('param-name').value.trim(), v = document.getElementById('param-value').value; if(!n) return; const r = await apiCallWithUser('/api/runs/'+runId+'/parameter', 'POST', {name:n, value:v}); if(r.success) location.reload(); }
+async function addNote() { const inp = document.getElementById('note-input'), note = inp.value.trim(); if(!note) return; const r = await apiCallWithUser('/api/runs/'+runId+'/note', 'POST', {note: note}); if(r.success) { inp.value = ''; if(!socket) pollEvents(); }}
+
+function escapeHtml(t) { const d = document.createElement('div'); d.textContent = t; return d.innerHTML; }
+function addEventToLog(ev) {
+    lastSeq = ev.seq; const log = document.getElementById('event-log'), div = document.createElement('div'); div.className = 'term-entry'; div.dataset.seq = ev.seq;
+    const userHtml = ev.user ? '<span class="term-user" style="color:'+ev.user.color+'">'+ev.user.username+'</span>' : '';
+    if(ev.type === 'command_started') { div.innerHTML = '<div class="term-prompt"><span class="term-time">'+ev.timestamp.substring(11,19)+'</span><span class="term-location">'+(ev.data.run_location||'host')+'</span><span class="term-name">'+(ev.data.command_name||'')+'</span>'+userHtml+'<span class="term-cmd">$ '+(ev.data.command||'')+'</span></div>'; }
+    else if(ev.type === 'command_completed' || ev.type === 'command_failed') { const isErr = ev.type === 'command_failed', stdout = ev.data.stdout||'', stderr = ev.data.stderr||'', exit = ev.data.exit_code||0, dur = (ev.data.duration||0).toFixed(2); div.innerHTML = '<div class="term-output '+(isErr?'term-error':'term-success')+'">'+(stdout?'<pre>'+escapeHtml(stdout)+'</pre>':'')+(stderr?'<pre class="stderr">'+escapeHtml(stderr)+'</pre>':'')+'<div class="term-status">'+(isErr?'✗':'✓')+' exit '+exit+' ('+dur+'s)</div></div>'; }
+    else if(ev.type === 'collector_output') { div.innerHTML = '<div class="term-collector"><span class="term-time">'+ev.timestamp.substring(11,19)+'</span><span class="term-badge">'+(ev.data.collector||'')+'</span><pre>'+escapeHtml(ev.data.stdout||'')+'</pre></div>'; }
+    else if(ev.type === 'note') { div.innerHTML = '<div class="term-note"><span class="term-time">'+ev.timestamp.substring(11,19)+'</span>'+userHtml+' 📝 '+escapeHtml(ev.data.text||'')+'</div>'; }
+    else { let cls = ''; if(ev.type.includes('started')) cls='term-info'; else if(ev.type.includes('completed')||ev.type.includes('pulled')) cls='term-success'; else if(ev.type.includes('failed')||ev.type.includes('error')) cls='term-error'; let det = ev.data.command_name||ev.data.error||''; div.innerHTML = '<div class="term-event '+cls+'"><span class="term-time">'+ev.timestamp.substring(11,19)+'</span><span class="term-type">'+ev.type+'</span>'+userHtml+(det?'<span class="term-detail">'+escapeHtml(det)+'</span>':'')+'</div>'; }
+    if(sortAsc) log.appendChild(div); else log.insertBefore(div, log.firstChild);
+    document.getElementById('event-count').textContent = lastSeq + ' events';
+    if(!sortAsc) log.scrollTop = 0; else log.scrollTop = log.scrollHeight;
+}
+async function pollEvents() { const r = await fetch('/api/runs/'+runId+'/events?after='+lastSeq); const d = await r.json(); if(d.events) d.events.forEach(e => addEventToLog(e)); }
+{% if ctx.manifest.status == 'running' and not multiuser_enabled %}setInterval(pollEvents, 2000);{% endif %}
+document.addEventListener('DOMContentLoaded', function() { const log = document.getElementById('event-log'); const entries = Array.from(log.querySelectorAll('.term-entry')); entries.sort((a,b) => parseInt(b.dataset.seq) - parseInt(a.dataset.seq)); entries.forEach(e => log.appendChild(e)); });
 </script>
 {% endblock %}

@@ -27,12 +27,13 @@ ECR executes entirely on a control laptop and communicates with target devices e
 ### Key Features
 
 - **Controller-only architecture**: All logic runs on your laptop
+- **Multi-user collaboration**: Multiple team members can share the same experiment in real-time via WebSocket
 - **SSH/SCP communication**: Standard protocols, no target installation required
-- **Append-only event stream**: Immutable experiment timeline and provenance
+- **Append-only event stream**: Immutable experiment timeline with user attribution
 - **Profile-based configuration**: Declarative target and action definitions
 - **Background collectors**: Optional low-frequency monitoring
 - **Resilient execution**: Handles partial failures and connectivity loss
-- **Export to ZIP**: Complete, self-describing experimental datasets
+- **Export to ZIP/HTML**: Complete, self-describing experimental datasets
 
 ## Installation
 
@@ -43,11 +44,39 @@ cd ecr
 # Install dependencies
 pip install -r requirements.txt
 
-# Run the application
+# Run the application (localhost only)
 python app.py
+
+# Run for LAN access (multi-user collaboration)
+python app.py --host 0.0.0.0 --port 5000
 ```
 
 The web interface will be available at http://localhost:5000
+
+## Multi-User Collaboration
+
+ECR supports multiple users working on the same experiment simultaneously:
+
+1. **Start the server** on one machine with LAN access:
+   ```bash
+   python app.py --host 0.0.0.0
+   ```
+
+2. **Share the URL** with team members:
+   ```
+   http://192.168.1.x:5000
+   ```
+
+3. **Everyone opens the same run** - all users see:
+   - Real-time event updates via WebSocket
+   - Who is connected (user avatars)
+   - Who executed each command
+   - "Running by [user]..." indicators
+
+4. **All actions are synchronized**:
+   - Commands, notes, parameters tagged with username
+   - Instant updates across all browsers
+   - Single timeline preserved for the experiment
 
 ## Quick Start
 
