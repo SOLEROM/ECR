@@ -206,5 +206,6 @@ marimo/_lsp/
 __marimo__/
 
 
-ecr/runs
-runs
+# project run outputs
+runs/
+v1/runs/
