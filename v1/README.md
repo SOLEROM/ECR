@@ -2,6 +2,12 @@
 
 A controller-only experiment orchestration and recording framework for edge AI field experiments on embedded Linux targets.
 
+![alt text](image.png)
+
+![alt text](image-1.png)
+
+![alt text](image-2.png)
+
 ## fast start
 
 ```

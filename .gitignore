@@ -136,6 +136,7 @@ celerybeat.pid
 # Environments
 .env
 .envrc
+# virtualenvs — never commit; `.venv` (no slash) matches at any depth (v1/, v2/, nested)
 .venv
 env/
 venv/

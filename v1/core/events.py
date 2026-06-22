@@ -3,6 +3,8 @@ Event stream management for ECR.
 Handles append-only JSONL event logging with immutability guarantees.
 """
 
+from __future__ import annotations
+
 import json
 import os
 import threading
