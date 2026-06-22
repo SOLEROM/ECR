@@ -1,0 +1,180 @@
+{% extends "base.html" %}
+{% block title %}{{ manifest.name }}{% endblock %}
+{% block content %}
+<!-- Session view. GUI parts tagged guiPart75–guiPart92 (see web/templates/GUIPARTS.md). -->
+<!-- guiPart75 — page header with status -->
+<h1 class="page" data-guipart="75"><a href="/sessions" class="muted">sessions</a> / {{ manifest.name }}
+  <span class="tag {{ manifest.status }}">{{ manifest.status }}</span></h1>
+
+<!-- guiPart76 — session toolbar -->
+<div class="toolbar" data-guipart="76">
+  <!-- guiPart77 — session id -->
+  <span class="muted mono" data-guipart="77">{{ sid }}</span>
+  <span class="sep"></span>
+  <!-- guiPart78 — session metadata (variant / algo / node-count / timestamps) -->
+  <span data-guipart="78">variant <b class="mono">{{ manifest.variant }}</b></span>
+  <span>algo <b class="mono">{{ manifest.algo }}</b></span>
+  <span>nodes <b class="mono">{{ manifest.node_names|length }}</b></span>
+  <span class="sep"></span>
+  <span class="muted mono" title="started{% if manifest.closed_at %} → closed{% endif %} (UTC)">⏱ {{ manifest.created_at[:19].replace('T',' ') }}{% if manifest.closed_at %} → {{ manifest.closed_at[:19].replace('T',' ') }}{% endif %}</span>
+  <span class="grow"></span>
+  <!-- guiPart79 — rename · guiPart80 — note input · guiPart81 — note submit -->
+  <button class="btn" id="btnRename" data-guipart="79" title="Rename this session">✎ Rename</button>
+  <input type="text" id="note" data-guipart="80" placeholder="add operator note…" style="width:260px">
+  <button class="btn" id="btnNote" data-guipart="81">Note</button>
+  {% if manifest.status == 'open' %}
+  <!-- guiPart82 — close session -->
+  <button class="btn warn" id="btnClose" data-guipart="82"
+    title="Mark this session done — records the close time and stops actions writing to it">■ Close session</button>
+  {% endif %}
+  <!-- guiPart83 — export ZIP -->
+  <a class="btn primary" data-guipart="83" href="/sessions/{{ sid }}/export">⤓ Export ZIP</a>
+</div>
+
+{% if manifest.status == 'open' %}
+<!-- guiPart84 — custom commands panel (fleet scope, live session only); guiPart85 = button group -->
+<div class="panel" id="cmdSession" data-guipart="84" style="margin-bottom:14px">
+  <h3>Custom commands
+    <span class="muted" style="font-weight:400;font-size:11px">— 🛰 remote run across the fleet · 🖥 local run on the base station · results land in this session log · edit on the Config page</span></h3>
+  <div class="body"><div id="cmdBar"><div class="cmd-empty">loading…</div></div></div>
+</div>
+{% endif %}
+
+<!-- guiPart86 — event timeline; guiPart87 — event count; guiPart88 — an event row -->
+<div class="panel">
+  <h3>Event timeline <span class="muted" id="evCount" data-guipart="87">({{ events|length }})</span></h3>
+  <div class="body events" id="events" data-guipart="86">
+    {% for e in events %}{% endfor %}
+  </div>
+</div>
+{% endblock %}
+
+{% block scripts %}
+<script>
+const SID = "{{ sid }}";
+const IS_CURRENT = ("{{ manifest.status }}" === "open");
+const box = document.getElementById("events");
+let lastSeq = 0;
+
+function kindClass(t){
+  if (t.includes("failed")||t.includes("error")) return "k-fail";
+  if (t.includes("completed")||t==="daemon_started") return "k-ok";
+  if (t.includes("sequence")) return "k-seq";
+  if (t==="note") return "k-note";
+  return "k-info";
+}
+function detail(d){
+  return d.action || d.daemon || d.step || d.text || d.sequence ||
+    (d.node? "node "+d.node : "") || "";
+}
+// Custom-command completions carry a `results` array (one entry per target).
+// Surface a compact ok/total + first output line so the command's effect is
+// visible right here in the session log, not just buried in events.jsonl.
+function resultSummary(d){
+  if (!d || !Array.isArray(d.results)) return "";
+  const res = d.results;
+  const okc = res.filter(x => x.success).length;
+  let snip = "";
+  for (const r of res){
+    const s = ((r.stdout || r.stderr || "") + "").trim();
+    if (s){ snip = s.split("\n")[0].slice(0,120); break; }
+  }
+  return `${okc}/${res.length} ok` + (snip ? " · " + snip : "");
+}
+function span(cls, text){ const s=document.createElement("span"); s.className=cls;
+  if(text!=null) s.textContent=text; return s; }
+
+function addEvent(e){
+  lastSeq = Math.max(lastSeq, e.seq||0);
+  const row = document.createElement("div");
+  row.className = "ev " + kindClass(e.type);
+  row.setAttribute("data-guipart", "88");   // event row (time/type/user/detail = guiPart89–92)
+  const ts = (e.timestamp||"").slice(11,19);
+  let extra = detail(e.data||{});
+  if (e.data && e.data.node && extra && !String(extra).includes(e.data.node)) extra = e.data.node+" · "+extra;
+  const summary = resultSummary(e.data||{});
+  if (summary) extra = (extra ? extra + " — " : "") + summary;
+  // build via textContent (never innerHTML) — note text + usernames are untrusted
+  row.appendChild(span("t", ts));
+  row.appendChild(span("ty", e.type));
+  if (e.user){
+    const who = span("who", (e.user.username||"?").slice(0,8));
+    who.style.background = e.user.color || "#58a6ff";
+    row.appendChild(who);
+  }
+  row.appendChild(span("d", extra));
+  box.appendChild(row);
+}
+
+// initial render (server passed events as JSON)
+const initial = {{ events|tojson }};
+initial.forEach(addEvent);
+box.scrollTop = box.scrollHeight;
+
+document.getElementById("btnNote").onclick = async () => {
+  const inp = document.getElementById("note"), n = inp.value.trim();
+  if (!n) return;
+  const r = await CCFlet.api("/api/session/note","POST",{note:n});
+  if (r.success){ inp.value=""; if(!IS_CURRENT) poll(); }
+};
+
+document.getElementById("btnRename").onclick = async () => {
+  const cur = {{ manifest.name|tojson }};
+  const name = (prompt("Rename session", cur) || "").trim();
+  if (!name || name === cur) return;
+  const r = await CCFlet.api("/api/sessions/"+encodeURIComponent(SID)+"/rename","POST",{name});
+  if (r.ok){ CCFlet.toast("renamed → "+name,"ok"); location.reload(); }
+  else CCFlet.toast(r.error||"rename failed","err");
+};
+
+// Close (mark done) the live session: records closed_at server-side and flips
+// status → closed (which removes the command bar + close button on reload).
+const btnClose = document.getElementById("btnClose");
+if (btnClose) btnClose.onclick = async () => {
+  btnClose.disabled = true;
+  const r = await CCFlet.api("/api/sessions/close","POST");
+  CCFlet.toast(r.success ? "session closed" : "no active session", r.success ? "ok" : "warn");
+  if (r.success) location.reload();
+  else btnClose.disabled = false;
+};
+
+// live append for the active session
+if (IS_CURRENT) {
+  CCFlet.on("new_event", (e) => { addEvent(e);
+    document.getElementById("evCount").textContent = "("+box.children.length+")";
+    box.scrollTop = box.scrollHeight; });
+}
+async function poll(){
+  const r = await CCFlet.api(`/api/sessions/${SID}/events?after=${lastSeq}`);
+  (r.events||[]).forEach(e => { addEvent(e); box.scrollTop = box.scrollHeight; });
+  document.getElementById("evCount").textContent = "("+box.children.length+")";
+}
+
+// ---- custom commands (D8) — moved here from the dashboard ----
+// Fleet-scoped buttons built client-side from /api/commands (so editing
+// commands.yaml + reload changes the UI with no template edit). Only the open
+// session shows them: run_custom always writes to the *current* session, so the
+// ACTION_* events land in the timeline above — that's the whole point of the move.
+if (IS_CURRENT) {
+  const bar = document.getElementById("cmdBar");
+  const runSessionCommand = async (c, btn) => {
+    btn.disabled = true;
+    // no node selection on this page → remote commands fan out across the fleet;
+    // local commands run once on the base station (nodes are ignored).
+    const r = await CCFlet.api("/api/fleet/command", "POST", {command:c.name});
+    btn.disabled = false;
+    const res = r.results || [];
+    const okc = res.filter(x => x.success).length;
+    const where = c.on === "local" ? "base station" : "whole fleet";
+    CCFlet.toast(`${c.label} → ${where}: ${okc}/${res.length} ok`, r.ok ? "ok" : "err");
+  };
+  const loadSessionCommands = async () => {
+    const data = await CCFlet.loadCommands();
+    const list = (data.commands || []).filter(c => c.scope === "fleet");
+    CCFlet.renderCommandButtons(bar, list, runSessionCommand);
+  };
+  CCFlet.on("commands_changed", loadSessionCommands);
+  loadSessionCommands();
+}
+</script>
+{% endblock %}

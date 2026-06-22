@@ -1,0 +1,14 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 32 24" width="32" height="24" role="img" aria-label="ccFleet">
+  <!-- Neutral placeholder mark: three connected nodes ("a fleet"). Replace with
+       your project's brand. Colors are inline so it renders standalone (favicon/img). -->
+  <g fill="none" stroke="#3fb950" stroke-width="1.6" opacity="0.5">
+    <line x1="6" y1="17" x2="16" y2="6"/>
+    <line x1="16" y1="6" x2="26" y2="17"/>
+    <line x1="6" y1="17" x2="26" y2="17"/>
+  </g>
+  <g fill="#3fb950">
+    <circle cx="16" cy="6" r="3.4"/>
+    <circle cx="6" cy="17" r="3.4"/>
+    <circle cx="26" cy="17" r="3.4"/>
+  </g>
+</svg>

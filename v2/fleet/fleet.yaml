@@ -1,0 +1,41 @@
+# ccFleet inventory — the single source of truth for the fleet nodes.
+# The variant is PER-NODE: each node's card carries its own A/B toggle. Derived
+# params (HOST_B / VAR_ADDR / VAR_LAUNCHER / VAR_FLAG) are computed in core/fleet.py
+# from the `defaults.variants` block below and never hand-typed here.
+fleet:
+  name: example-fleet
+  defaults:
+    variant: A              # default variant for nodes that don't set one (A | B)
+    algo: default           # fleet-wide strategy/parameter token (a bare token)
+    roleA_user: user        # ssh user for the primary host (roleA)
+    roleB_user: root        # ssh user for the secondary host (roleB, via roleA)
+    key_file: ~/.ssh/id_rsa
+    deploy_root: /srv/ccfleet/roleA
+    ssh_opts: "-o BatchMode=yes -o StrictHostKeyChecking=no -o ConnectTimeout=5"
+    stagger: 0.5            # seconds between node starts in a fleet bring-up
+    roleB_host_suffix: ".2" # HOST_B = <subnet><suffix> (the roleB host per node)
+    # Each variant selects a set of derived params. `addr` may contain {SUBNET}
+    # (replaced per node). Edit freely — nothing about a variant is hard-coded.
+    variants:
+      A:
+        addr: "10.0.0.255"          # VAR_ADDR for variant A (a fixed address)
+        launcher: "variantA.run"    # VAR_LAUNCHER for variant A
+        flag: ""                    # VAR_FLAG for variant A
+      B:
+        addr: "{SUBNET}.255"        # VAR_ADDR for variant B (per-node, from SUBNET)
+        launcher: "variantB.run"
+        flag: "--variant-flag"
+  nodes:
+    - { name: node1, id: 1, host: 10.0.0.101, subnet: 10.1.1 }
+    - { name: node2, id: 2, host: 10.0.0.102, subnet: 10.1.2 }
+    - { name: node3, id: 3, host: 10.0.0.103, subnet: 10.1.3 }
+    - { name: node4, id: 4, host: 10.0.0.104, subnet: 10.1.4 }
+    - { name: node5, id: 5, host: 10.0.0.105, subnet: 10.1.5 }
+  # Named selection groups for the dashboard's Select line — one button per entry.
+  # Each is a custom label → list of node names; clicking it selects exactly those
+  # nodes (Shift-click adds to the current selection). Names are display-only and
+  # every member must be a real node above. Edit freely from the Config page.
+  groups:
+    group1: [node1, node2, node3]
+    group2: [node4, node5]
+    group3: [node1, node3, node5]

@@ -1,0 +1,73 @@
+# roleA profile (role: roleA) — the primary, directly-reachable host of each node.
+# {param} placeholders are rendered from core/fleet.py params() per node, per the
+# node's current variant. serviceA-before-serviceB ordering is enforced by the
+# orchestrator's bring-up sequence (serviceB has no reconnect to serviceA).
+name: roleA
+connection:
+  user: "{roleA_user}"
+  host: "{HOST_A}"
+  port: 22
+  key_file: "{key_file}"
+  timeout: 5
+
+actions:
+  deploy_serviceB:
+    kind: transfer
+    method: rsync
+    src: "./payload/serviceB/"
+    dst: "{DEPLOY_ROOT}/serviceB/"
+    timeout: 300
+  deploy_serviceA:
+    kind: transfer
+    method: rsync
+    src: "./payload/serviceA/"
+    dst: "{DEPLOY_ROOT}/serviceA/"
+    timeout: 300
+  serviceA_build:
+    kind: exec
+    command: "cd {DEPLOY_ROOT}/serviceA && make"
+    timeout: 180
+
+  serviceA_start:
+    kind: daemon
+    name: serviceA
+    prefer_systemd: serviceA
+    command: "cd {DEPLOY_ROOT}/serviceA && ID={ID} ADDR={VAR_ADDR} ./{VAR_LAUNCHER} tcp"
+  serviceA_stop:
+    kind: daemon_stop
+    name: serviceA
+    match: "serviceA "
+    prefer_systemd: serviceA
+  serviceA_status:
+    kind: daemon_status
+    name: serviceA
+    match: "serviceA "
+    prefer_systemd: serviceA
+
+  serviceB_start:
+    kind: daemon
+    name: serviceB
+    after: serviceA
+    command: "cd {DEPLOY_ROOT}/serviceB && ID={ID} python3 run_serviceB.py --algo {ALGO} {VAR_FLAG}"
+  serviceB_stop:
+    kind: daemon_stop
+    name: serviceB
+    match: "run_serviceB.py"
+  serviceB_status:
+    kind: daemon_status
+    name: serviceB
+    match: "run_serviceB.py"
+
+collectors:
+  links:
+    command: "cat /run/serviceA/links.json 2>/dev/null || tail -n 200 /tmp/serviceA.rx"
+    interval: 1
+    parser: link
+  check1:
+    command: "tail -n 50 /tmp/ccflet/serviceB.log"
+    interval: 2
+    parser: check
+
+logs:
+  rx: /tmp/serviceA.rx
+  serviceB: /tmp/ccflet/serviceB.log

@@ -1,0 +1,105 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>{% block title %}ccFleet{% endblock %} · Command & Control</title>
+  <link rel="icon" href="{{ url_for('static', filename='logo/svg/mark.svg') }}">
+  <link rel="stylesheet" href="{{ url_for('static', filename='css/main.css') }}">
+  <link rel="stylesheet" href="{{ url_for('static', filename='css/vendor/xterm.css') }}">
+</head>
+<body{% if embed %} class="embed"{% endif %}>
+  {% if not embed %}
+  <header class="header">
+    <!-- guiPart01 — brand / logo (links home). Neutral placeholder mark: replace the
+         SVG + wordmark with your project's brand. -->
+    <a class="logo" href="/" id="guiPart01" data-guipart="01" title="ccFleet — Command &amp; Control">
+      <svg class="logo-mark" viewBox="0 0 32 24" width="30" height="22" aria-hidden="true">
+        <!-- three connected nodes — a neutral "fleet" mark -->
+        <line class="logo-link" x1="6" y1="17" x2="16" y2="6"/>
+        <line class="logo-link" x1="16" y1="6" x2="26" y2="17"/>
+        <line class="logo-link" x1="6" y1="17" x2="26" y2="17"/>
+        <circle class="logo-node" cx="16" cy="6" r="3.4"/>
+        <circle class="logo-node" cx="6" cy="17" r="3.4"/>
+        <circle class="logo-node" cx="26" cy="17" r="3.4"/>
+      </svg>
+      <span class="logo-text">cc<span class="logo-accent">Fleet</span></span>
+    </a>
+    <!-- guiPart02 — main navigation -->
+    <nav class="nav" id="guiPart02" data-guipart="02">
+      <a href="/" data-nav="dashboard">Dashboard</a>
+      <a href="/sessions" data-nav="sessions">Sessions</a>
+      <a href="/config" data-nav="config">Config</a>
+      <a href="/help" data-nav="help">Help</a>
+    </nav>
+    <div class="header-right">
+      <!-- guiPart03 — run-mode badge (mock / dry-run / live) -->
+      {% if mock %}<span class="badge-env mock" id="guiPart03" data-guipart="03" title="Simulated fleet — no hardware">mock</span>
+      {% elif dry %}<span class="badge-env dry" id="guiPart03" data-guipart="03" title="Commands printed, not executed">dry-run</span>
+      {% else %}<span class="badge-env live" id="guiPart03" data-guipart="03">live</span>{% endif %}
+      <!-- guiPart04 — base-station connectivity LEDs (the configured off-fleet links);
+           built by app.js from /api/networks and updated live over the net_status event. -->
+      <div class="netleds" id="guiPart04" data-guipart="04" title="base-station links"></div>
+      <!-- guiPart05 — connected-operator roster (avatars) -->
+      <div class="roster" id="roster" data-guipart="05"></div>
+      <!-- guiPart06 — operator name input (audited) -->
+      <input type="text" id="opName" data-guipart="06" style="width:120px" placeholder="operator" title="your name (audited)">
+      <!-- guiPart07 — live connection status -->
+      <span class="conn" id="conn" data-guipart="07"><span class="dot"></span><span id="connText">connecting…</span></span>
+    </div>
+  </header>
+  {% endif %}
+
+  <main class="wrap">{% block content %}{% endblock %}</main>
+
+  {% if not embed %}
+  <!-- guiPart09 — session dock: a reduced, global view of whichever pinned session is
+       active on the bottom bar. The live session is interactive (comment + quick
+       commands + close); past sessions are read-only. "open full" → the full view. -->
+  <div id="sessionDock" class="dock" data-guipart="09" aria-hidden="true">
+    <div class="dock-head">
+      <span class="dock-status" id="dockStatus"></span>
+      <b id="dockName">session</b>
+      <span class="dock-meta" id="dockMeta"></span>
+      <span class="dock-actions">
+        <a class="btn sm" id="dockFull" href="/sessions">open full ▸</a>
+        <button class="btn sm ghost" id="dockCollapse" title="Collapse (Esc)">▾</button>
+      </span>
+    </div>
+    <div class="dock-body">
+      <div class="dock-events events" id="dockEvents"></div>
+      <div class="dock-side">
+        <div class="dock-ro" id="dockRO">read-only — switch to the live session to comment or run commands</div>
+        <div class="dock-note">
+          <input type="text" id="dockNoteInput" placeholder="add a comment…">
+          <button class="btn sm" id="dockNoteBtn">Note</button>
+        </div>
+        <div class="dock-cmds-wrap">
+          <div class="dock-side-lbl">Quick commands</div>
+          <div id="dockCmds"><div class="cmd-empty">loading…</div></div>
+        </div>
+        <button class="btn sm warn" id="dockEnd" title="Mark this session done">■ Close session</button>
+      </div>
+    </div>
+  </div>
+
+  <!-- guiPart10 — bottom command bar: a persistent strip carrying the pinned sessions
+       as switchable name-chips (pinned on the Sessions page). Clicking a chip opens
+       that session in the dock above; the live session is always present. -->
+  <div id="cmdline" class="cmdline" data-guipart="10">
+    <span class="cmdline-lbl"
+      title="Sessions pinned to the bottom bar (pin them on the Sessions page) — click a name to open it in the dock">▤ Sessions</span>
+    <div id="sessTabs" class="sess-tabs"><span class="muted sess-empty">loading…</span></div>
+  </div>
+  {% endif %}
+
+  <!-- guiPart08 — toast notifications -->
+  <div id="toasts" data-guipart="08"></div>
+
+  <script src="{{ url_for('static', filename='js/vendor/socket.io.min.js') }}"></script>
+  <script src="{{ url_for('static', filename='js/vendor/xterm.js') }}"></script>
+  <script src="{{ url_for('static', filename='js/vendor/xterm-addon-fit.js') }}"></script>
+  <script src="{{ url_for('static', filename='js/app.js') }}"></script>
+  {% block scripts %}{% endblock %}
+</body>
+</html>

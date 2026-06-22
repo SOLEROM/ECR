@@ -1,0 +1,245 @@
+{% extends "base.html" %}
+{% block title %}{{ node.name }}{% endblock %}
+{% block content %}
+<!-- Node detail. GUI parts tagged guiPart41–guiPart62 (see web/templates/GUIPARTS.md). -->
+<!-- guiPart41 — page breadcrumb / title -->
+<h1 class="page" id="guiPart41" data-guipart="41"><a href="/" class="muted">fleet</a> / {{ node.name }}
+  <span class="id">#{{ node.id }}</span></h1>
+
+<div class="cols">
+  <!-- guiPart42 — left column (info + actions + custom commands) -->
+  <div data-guipart="42">
+    <!-- guiPart43 — node info panel -->
+    <div class="panel" id="guiPart43" data-guipart="43" style="margin-bottom:16px">
+      <h3>Node <span class="grow"></span></h3>
+      <div class="body">
+        <div class="kv">
+          <span class="k">id</span><span class="v">{{ node.id }}</span>
+          <span class="k">host (roleA)</span><span class="v">{{ node.host }}</span>
+          <span class="k">subnet</span><span class="v">{{ node.subnet }}</span>
+          <span class="k">host (roleB)</span><span class="v">{{ node.subnet }}.2</span>
+          <span class="k">variant</span><span class="v">
+            <!-- guiPart44 — per-node variant toggle -->
+            <span class="seg varseg-node" data-guipart="44" title="variant for this node (A · B)">
+              <button data-nvariant="A" class="{{ 'active' if fleet.node_variant(node)=='A' }}">A</button>
+              <button data-nvariant="B" class="{{ 'active' if fleet.node_variant(node)=='B' }}">B</button>
+            </span></span>
+        </div>
+        <!-- guiPart45 — health gates (A–D) -->
+        <div class="gates" id="gates" data-guipart="45" style="margin-top:14px">
+          {% for g,lbl in [('A','A·reach'),('B','B·proc'),('C','C·check'),('D','D·link')] %}
+          <div class="gate na" data-gate="{{g}}"><div class="g">{{lbl}}</div><div class="v">—</div></div>
+          {% endfor %}
+        </div>
+        <!-- guiPart46 — metrics (service pills + counters) -->
+        <div class="metrics" id="metrics" data-guipart="46" style="margin-top:12px">
+          <span class="m"><span class="pill" data-d="serviceA"></span>serviceA</span>
+          <span class="m"><span class="pill" data-d="serviceB"></span>serviceB</span>
+          <span class="m vb-only"><span class="pill" data-d="serviceC"></span>serviceC</span>
+          <span class="m">links <b data-f="links">—</b></span>
+        </div>
+      </div>
+    </div>
+
+    <!-- guiPart47 — actions panel -->
+    <div class="panel" id="guiPart47" data-guipart="47">
+      <h3>Actions</h3>
+      <div class="body">
+        <!-- guiPart48 — an action group; guiPart49 — sequence buttons -->
+        <div class="action-group" data-guipart="48">
+          <div class="lbl">Sequences (variant-aware)</div>
+          <div class="action-row" data-guipart="49">
+            <button class="btn primary" data-seq="bring_up">▲ Bring up</button>
+            <button class="btn warn" data-seq="tear_down">▼ Tear down</button>
+            <button class="btn" data-seq="deploy">Deploy</button>
+          </div>
+        </div>
+        <!-- guiPart50 — deploy actions (roleA transfers + build) -->
+        <div class="action-group" data-guipart="50">
+          <div class="lbl">Deploy</div>
+          <div class="action-row">
+            <button class="btn sm" data-role="roleA" data-act="deploy_serviceB">rsync serviceB</button>
+            <button class="btn sm" data-role="roleA" data-act="deploy_serviceA">rsync serviceA</button>
+            <button class="btn sm" data-role="roleA" data-act="serviceA_build">build serviceA</button>
+          </div>
+        </div>
+        <!-- guiPart51 — serviceA control -->
+        <div class="action-group" data-guipart="51">
+          <div class="lbl">serviceA</div>
+          <div class="action-row">
+            <button class="btn sm primary" data-role="roleA" data-act="serviceA_start">start</button>
+            <button class="btn sm warn" data-role="roleA" data-act="serviceA_stop">stop</button>
+            <button class="btn sm ghost" data-role="roleA" data-act="serviceA_status">status</button>
+          </div>
+        </div>
+        <!-- guiPart52 — serviceB control -->
+        <div class="action-group" data-guipart="52">
+          <div class="lbl">serviceB</div>
+          <div class="action-row">
+            <button class="btn sm primary" data-role="roleA" data-act="serviceB_start">start</button>
+            <button class="btn sm warn" data-role="roleA" data-act="serviceB_stop">stop</button>
+            <button class="btn sm ghost" data-role="roleA" data-act="serviceB_status">status</button>
+          </div>
+        </div>
+        <!-- guiPart53 — roleB control (variant B · via jump-host) -->
+        <div class="action-group vb-only" data-guipart="53">
+          <div class="lbl">roleB (variant B · via jump-host)</div>
+          <div class="action-row">
+            <button class="btn sm primary" data-role="roleB" data-act="serviceC_start">serviceC start</button>
+            <button class="btn sm warn" data-role="roleB" data-act="serviceC_stop">serviceC stop</button>
+            <button class="btn sm ghost" data-role="roleB" data-act="serviceC_status">serviceC status</button>
+            <button class="btn sm ghost" data-role="roleB" data-act="probeA_status">probe A</button>
+            <button class="btn sm ghost" data-role="roleB" data-act="probeB_status">probe B</button>
+          </div>
+        </div>
+        <!-- guiPart54 — single-action output -->
+        <pre id="out" class="mono" data-guipart="54" style="background:#000;border:1px solid var(--border);border-radius:6px;padding:9px;margin-top:6px;max-height:170px;overflow:auto;font-size:12px;white-space:pre-wrap"></pre>
+      </div>
+    </div>
+
+    <!-- guiPart55 — custom commands panel (node-scoped); guiPart56/57 built by app.js -->
+    <div class="panel" id="cmdPanel" data-guipart="55" style="margin-top:16px">
+      <h3>Custom commands <span class="muted" style="font-weight:400;font-size:11px">— from the Config page</span></h3>
+      <div class="body"><div id="cmdList"><div class="cmd-empty">loading…</div></div></div>
+    </div>
+  </div>
+
+  <!-- guiPart58 — right column (live logs) -->
+  <div class="panel" data-guipart="58">
+    <h3>Live logs <span class="muted" id="streamState" data-guipart="61">— idle</span></h3>
+    <!-- guiPart59 — log tab strip; guiPart60 = a log tab -->
+    <div class="logtabs" id="logtabs" data-guipart="59"></div>
+    <div style="padding:0 10px 10px">
+      <!-- guiPart62 — live log terminal (xterm) -->
+      <div class="term-wrap"><div class="xterm-host" id="term" data-guipart="62"></div></div>
+    </div>
+  </div>
+</div>
+{% endblock %}
+
+{% block scripts %}
+<script>
+const NODE = "{{ node.name }}";
+let VARIANT = "{{ fleet.node_variant(node) }}";   // per-node variant
+
+function applyVariantVis(){ document.querySelectorAll(".vb-only").forEach(e =>
+  e.style.display = (VARIANT==="B") ? "" : "none"); }
+
+// Sync the whole detail view to a variant: toggle state, variant-B metric visibility,
+// and the log tabs (serviceC log only exists in variant B).
+function setVariantUI(variant){
+  VARIANT = variant;
+  document.querySelectorAll(".varseg-node button").forEach(b =>
+    b.classList.toggle("active", b.dataset.nvariant === variant));
+  applyVariantVis();
+  buildTabs();
+  if (!logsForVariant().includes(curLog)) switchLog(logsForVariant()[0]);
+}
+
+function gc(s){ return s==="ok"?"gate ok":s==="warn"?"gate warn":s==="fail"?"gate fail":"gate na"; }
+function gv(s){ return s==="ok"?"✓":s==="warn"?"!":s==="fail"?"✗":"—"; }
+
+function applyStatus(ns){
+  if (ns.node !== NODE) return;
+  if (ns.variant && ns.variant !== VARIANT) setVariantUI(ns.variant);  // toggled elsewhere
+  ["A","B","C","D"].forEach(g => {
+    const cell = document.querySelector(`#gates .gate[data-gate="${g}"]`);
+    const info = (ns.gates||{})[g] || {state:"na",detail:""};
+    cell.className = gc(info.state); cell.querySelector(".v").textContent = gv(info.state);
+    cell.title = info.detail || info.state;
+  });
+  const sp = (d,up) => { const p=document.querySelector(`#metrics .pill[data-d="${d}"]`);
+    if(p) p.className="pill "+(up?"up":"down"); };
+  sp("serviceA", ns.serviceA&&ns.serviceA.up); sp("serviceB", ns.serviceB&&ns.serviceB.up);
+  sp("serviceC", ns.serviceC&&ns.serviceC.up);
+  document.querySelector('#metrics [data-f="links"]').textContent =
+    (ns.links?ns.links.count:0)+"/"+(ns.expected_links||0);
+}
+
+// ---- single actions ----
+document.querySelectorAll("[data-act]").forEach(btn => btn.onclick = async (e) => {
+  const t = e.target; t.disabled = true;
+  const out = document.getElementById("out");
+  const r = await CCFlet.api(`/api/node/${NODE}/action`,"POST",
+    {role:t.dataset.role, action:t.dataset.act});
+  t.disabled = false;
+  const tag = r.success ? "✓" : "✗";
+  out.textContent = `$ ${t.dataset.act}\n${tag} ${r.stdout||r.stderr||JSON.stringify(r.extra||{})}\n\n` + out.textContent;
+  CCFlet.toast(`${t.dataset.act}: ${r.success?"ok":"failed"}`, r.success?"ok":"err");
+  CCFlet.api(`/api/node/${NODE}/status`).then(applyStatus);
+});
+document.querySelectorAll("[data-seq]").forEach(btn => btn.onclick = async (e) => {
+  const seq = e.target.dataset.seq;
+  const r = await CCFlet.api(`/api/node/${NODE}/${seq}`,"POST",{});
+  CCFlet.toast(`${seq} → ${NODE}`, r.success?"ok":"err");
+});
+
+// ---- per-node variant toggle ----
+document.querySelectorAll(".varseg-node button").forEach(b => b.onclick = async (e) => {
+  const variant = e.target.dataset.nvariant;
+  const r = await CCFlet.api(`/api/node/${NODE}/variant`,"POST",{variant});
+  if (r.success){ setVariantUI(r.variant); CCFlet.toast(`${NODE} → ${CCFlet.variantLabel(r.variant)}`, "ok"); }
+  else CCFlet.toast(r.error || "variant change failed","err");
+});
+
+// ---- live logs (xterm) ----
+const term = new Terminal({ convertEol:true, fontSize:12, theme:{background:"#000"},
+  scrollback:3000, fontFamily:'"SF Mono",Menlo,Consolas,monospace' });
+const fit = new FitAddon.FitAddon();
+term.loadAddon(fit);
+term.open(document.getElementById("term"));
+setTimeout(()=>fit.fit(), 50);
+window.addEventListener("resize", ()=>{ try{fit.fit();}catch(e){} });
+
+let curLog = null;
+function logsForVariant(){ return VARIANT==="B" ? ["rx","serviceB","serviceC"] : ["rx","serviceB"]; }
+function buildTabs(){
+  const box = document.getElementById("logtabs"); box.innerHTML="";
+  logsForVariant().forEach(l => {
+    const t = document.createElement("div");
+    t.className = "logtab" + (l===curLog?" active":""); t.textContent = l; t.dataset.log=l;
+    t.setAttribute("data-guipart","60");
+    t.onclick = () => switchLog(l); box.appendChild(t);
+  });
+}
+function switchLog(log){
+  if (curLog && CCFlet.socket) CCFlet.socket.emit("unsubscribe_log",{node:NODE,log:curLog});
+  curLog = log; term.clear();
+  document.querySelectorAll(".logtab").forEach(t=>t.classList.toggle("active",t.dataset.log===log));
+  document.getElementById("streamState").textContent = "— tailing " + log;
+  if (CCFlet.socket) CCFlet.socket.emit("subscribe_log",{node:NODE,log:log});
+}
+
+CCFlet.on("log_line", (d) => { if (d.node===NODE && d.log===curLog) term.writeln(d.line); });
+CCFlet.on("node_status", applyStatus);
+CCFlet.on("node_variant", (d)=>{ if (d.node===NODE) setVariantUI(d.variant); });
+
+// ---- custom commands — node-scoped buttons, built from /api/commands ----
+async function loadNodeCommands(){
+  const data = await CCFlet.loadCommands();
+  const list = (data.commands || []).filter(c => c.scope === "node");
+  CCFlet.renderCommandButtons(document.getElementById("cmdList"), list, runNodeCommand);
+}
+async function runNodeCommand(c, btn){
+  btn.disabled = true;
+  const r = await CCFlet.api(`/api/node/${NODE}/command`, "POST", {command:c.name});
+  btn.disabled = false;
+  const out = document.getElementById("out");
+  const res = (r.results || [])[0] || {};
+  const tag = r.ok ? "✓" : "✗";
+  const where = c.on === "local" ? "local" : "remote";
+  out.textContent = `$ ${c.label} (${where})\n${tag} ${res.stdout||res.stderr||""}\n\n` + out.textContent;
+  CCFlet.toast(`${c.label}: ${r.ok?"ok":"failed"}`, r.ok?"ok":"err");
+}
+CCFlet.on("commands_changed", loadNodeCommands);
+loadNodeCommands();
+
+applyVariantVis();
+buildTabs();
+CCFlet.api(`/api/node/${NODE}/status`).then(applyStatus);
+// start streaming the first log once socket is up
+const startStream = () => switchLog(logsForVariant()[0]);
+if (CCFlet.socket && CCFlet.socket.connected) startStream();
+else document.addEventListener("DOMContentLoaded", ()=>setTimeout(startStream, 600));
+</script>
+{% endblock %}

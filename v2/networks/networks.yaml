@@ -1,0 +1,29 @@
+# ccFleet base-station connectivity — the top-bar LEDs (green = reachable,
+# red = no reply, gray = checking). These are NOT fleet nodes: they are OFF-fleet
+# links the base station pings locally so the operator can see, at a glance, that the
+# station itself is wired up before a run.
+#
+# Edit the hosts to match your site — changes hot-reload from the Config page with no
+# restart and are audited like any other action. Add or remove links freely (one LED
+# per entry); `key` must be a bare token and unique.
+networks:
+  poll_interval: 5        # seconds between connectivity checks
+  ping_timeout: 1         # seconds to wait for a ping reply
+  links:
+    # 1) the gateway / router the base station is connected to
+    - key: link1
+      label: Gateway
+      host: 10.0.0.1
+      hint: the gateway / router the base station is connected to
+
+    # 2) an upstream reachability target (e.g. a known-good service or DNS host)
+    - key: link2
+      label: Upstream
+      host: 10.0.0.2
+      hint: upstream reachability target
+
+    # 3) any other device that must be present before a run (set this for your site)
+    - key: link3
+      label: Peer device
+      host: 10.0.0.50
+      hint: a peer device that must be reachable before a run

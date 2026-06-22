@@ -1,0 +1,14 @@
+# ccFleet — SSH Command & Control for a generic node fleet
+flask>=3.0.0
+flask-socketio>=5.3.0
+python-socketio>=5.10.0
+# Native WebSocket support for SocketIO's threading async_mode (no gevent/eventlet
+# monkey-patching — keeps paramiko's own threads clean; see plan §10 risk note).
+simple-websocket>=1.0.0
+paramiko>=3.4.0
+pyyaml>=6.0.1
+markdown>=3.5.0
+
+# dev / test
+pytest>=8.0.0
+pytest-cov>=4.1.0

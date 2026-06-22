@@ -1,0 +1,226 @@
+{% extends "base.html" %}
+{% block title %}Config{% endblock %}
+{% block content %}
+<h1 class="page">Config</h1>
+
+<!-- Config editor. GUI parts tagged guiPart93–guiPart108 (see web/templates/GUIPARTS.md). -->
+<!-- guiPart93 — config layout (tree + editor) -->
+<div class="help cfg" data-guipart="93">
+  <!-- guiPart94 — config sidebar -->
+  <aside class="help-side" data-guipart="94">
+    <div class="side-head">
+      <!-- guiPart95 — filter · guiPart96 — refresh tree -->
+      <input type="text" id="cfgFilter" data-guipart="95" placeholder="filter files…" autocomplete="off">
+      <button class="btn sm ghost" id="cfgRefresh" data-guipart="96" title="Reload the tree from disk">↻</button>
+    </div>
+    <!-- guiPart97 — config file tree; guiPart98 = a root dir, guiPart99 = a file (built in JS) -->
+    <div class="tree" id="cfgTree" data-guipart="97"><div class="empty sm">loading…</div></div>
+  </aside>
+
+  <section class="help-doc cfg-edit">
+    <!-- guiPart100 — editor header -->
+    <div class="doc-head cfg-head" data-guipart="100">
+      <!-- guiPart101 — file path · guiPart102 — kind chip · guiPart103 — dirty state -->
+      <span class="doc-path mono" id="cfgPath" data-guipart="101">Select a file.</span>
+      <span class="chip" id="cfgKind" data-guipart="102" style="display:none"></span>
+      <span class="grow"></span>
+      <span class="muted sm" id="cfgState" data-guipart="103"></span>
+      <!-- guiPart104 — validate · guiPart105 — revert · guiPart106 — save -->
+      <button class="btn sm ghost" id="cfgCheck" data-guipart="104" disabled>Check</button>
+      <button class="btn sm warn ghost" id="cfgRevert" data-guipart="105" disabled title="Restore the newest backup">Revert</button>
+      <button class="btn sm primary" id="cfgSave" data-guipart="106" disabled>Save</button>
+    </div>
+    <!-- guiPart107 — config text editor -->
+    <textarea id="cfgText" class="cfg-text mono" data-guipart="107" spellcheck="false"
+              placeholder="Pick a config file on the left to edit it." disabled></textarea>
+    <!-- guiPart108 — validation messages -->
+    <div class="cfg-problems" id="cfgProblems" data-guipart="108"></div>
+  </section>
+</div>
+{% endblock %}
+
+{% block scripts %}
+<script>
+(function () {
+  const treeEl    = document.getElementById("cfgTree");
+  const filterEl  = document.getElementById("cfgFilter");
+  const textEl    = document.getElementById("cfgText");
+  const pathEl    = document.getElementById("cfgPath");
+  const kindEl    = document.getElementById("cfgKind");
+  const stateEl   = document.getElementById("cfgState");
+  const problems  = document.getElementById("cfgProblems");
+  const btnCheck  = document.getElementById("cfgCheck");
+  const btnSave   = document.getElementById("cfgSave");
+  const btnRevert = document.getElementById("cfgRevert");
+
+  const fileLinks = {};        // "root/path" -> <a>
+  let cur = null;              // {root, path, kind}
+  let original = "";           // last-saved text (for dirty tracking)
+
+  function key(root, path) { return root + "/" + path; }
+  function dirty() { return cur && textEl.value !== original; }
+
+  async function fetchJSON(url) {
+    try {
+      const r = await fetch(url, { headers: { "X-CCFlet-User": JSON.stringify(CCFlet.user) } });
+      return await r.json();
+    } catch (e) { return null; }
+  }
+
+  // ---- problems / status ----
+  function clearProblems() { problems.className = "cfg-problems"; problems.textContent = ""; }
+  function showOk(msg) {
+    problems.className = "cfg-problems ok";
+    problems.textContent = "✓ " + msg;
+  }
+  function showError(res) {
+    problems.className = "cfg-problems err";
+    let msg = res && res.error ? res.error : "invalid";
+    if (res && res.line) msg = "line " + res.line + ": " + msg;
+    problems.textContent = "✗ " + msg;
+  }
+  function refreshState() {
+    btnSave.disabled = !cur || !dirty();
+    btnCheck.disabled = !cur;
+    stateEl.textContent = !cur ? "" : (dirty() ? "● unsaved changes" : "saved");
+    stateEl.className = "muted sm" + (dirty() ? " unsaved" : "");
+  }
+
+  // ---- tree ----
+  function renderTree(roots) {
+    treeEl.innerHTML = "";
+    Object.keys(fileLinks).forEach((k) => delete fileLinks[k]);
+    (roots || []).forEach((root) => {
+      const grp = document.createElement("div");
+      grp.className = "tree-dir";
+      const head = document.createElement("div");
+      head.className = "tree-dir-head";
+      const caret = document.createElement("span"); caret.className = "caret"; caret.textContent = "▾";
+      const label = document.createElement("span"); label.textContent = root.label;
+      const tag = document.createElement("span"); tag.className = "chip xs"; tag.textContent = root.key;
+      head.append(caret, label, tag);
+      head.addEventListener("click", () => grp.classList.toggle("collapsed"));
+      const kids = document.createElement("div"); kids.className = "tree-kids";
+      if (!root.files.length) {
+        const e = document.createElement("div"); e.className = "empty sm"; e.textContent = "(no files)";
+        kids.appendChild(e);
+      }
+      root.files.forEach((f) => {
+        const a = document.createElement("a");
+        a.className = "tree-file";
+        a.href = "#";
+        a.dataset.k = key(root.key, f.path);
+        const t = document.createElement("span"); t.className = "tf-title"; t.textContent = f.name;
+        a.appendChild(t);
+        if (f.kind === "script") {
+          const s = document.createElement("span"); s.className = "chip xs script"; s.textContent = "sh";
+          a.appendChild(s);
+        }
+        a.addEventListener("click", (e) => { e.preventDefault(); openFile(root.key, f.path, f.kind); });
+        fileLinks[a.dataset.k] = a;
+        kids.appendChild(a);
+      });
+      grp.append(head, kids);
+      treeEl.appendChild(grp);
+    });
+  }
+
+  function setActive(k) {
+    Object.values(fileLinks).forEach((a) => a.classList.remove("active"));
+    if (fileLinks[k]) fileLinks[k].classList.add("active");
+  }
+
+  async function openFile(root, path, kind) {
+    if (dirty() && !confirm("Discard unsaved changes?")) return;
+    const doc = await fetchJSON("/api/config/file?root=" + encodeURIComponent(root) +
+                                "&path=" + encodeURIComponent(path));
+    if (!doc || doc.text === undefined) { showError({ error: "could not load file" }); return; }
+    cur = { root: doc.root, path: doc.path, kind: doc.kind };
+    original = doc.text;
+    textEl.value = doc.text;
+    textEl.disabled = false;
+    pathEl.textContent = root + " / " + doc.path;
+    kindEl.textContent = doc.kind;
+    kindEl.style.display = "";
+    btnRevert.disabled = !doc.has_backup;
+    setActive(key(root, path));
+    clearProblems();
+    refreshState();
+  }
+
+  async function check() {
+    if (!cur) return;
+    const res = await CCFlet.api("/api/config/validate", "POST",
+      { root: cur.root, path: cur.path, text: textEl.value });
+    if (res && res.ok) showOk("valid — safe to save"); else showError(res);
+  }
+
+  async function save() {
+    if (!cur || !dirty()) return;
+    btnSave.disabled = true;
+    const res = await CCFlet.api("/api/config/file", "POST",
+      { root: cur.root, path: cur.path, text: textEl.value });
+    if (res && res.ok) {
+      original = textEl.value;
+      btnRevert.disabled = false;
+      showOk("saved" + (res.reloaded ? " · reloaded " + res.reloaded : ""));
+      CCFlet.toast("saved " + cur.root + "/" + cur.path, "ok");
+    } else {
+      showError(res);
+      CCFlet.toast("save blocked: " + ((res && res.error) || "invalid"), "err");
+    }
+    refreshState();
+  }
+
+  async function revert() {
+    if (!cur) return;
+    if (!confirm("Restore the newest backup of this file?")) return;
+    const res = await CCFlet.api("/api/config/revert", "POST",
+      { root: cur.root, path: cur.path });
+    if (res && res.ok) {
+      if (res.text !== undefined) { textEl.value = res.text; original = res.text; }
+      showOk("reverted to last backup" + (res.reloaded ? " · reloaded " + res.reloaded : ""));
+      CCFlet.toast("reverted " + cur.root + "/" + cur.path, "ok");
+    } else { showError(res); }
+    refreshState();
+  }
+
+  // ---- editor behaviors ----
+  textEl.addEventListener("input", () => { clearProblems(); refreshState(); });
+  textEl.addEventListener("keydown", (e) => {
+    if (e.key === "Tab") {                       // insert 2 spaces, don't tab away
+      e.preventDefault();
+      const s = textEl.selectionStart, end = textEl.selectionEnd;
+      textEl.value = textEl.value.slice(0, s) + "  " + textEl.value.slice(end);
+      textEl.selectionStart = textEl.selectionEnd = s + 2;
+      refreshState();
+    }
+    if ((e.ctrlKey || e.metaKey) && e.key === "s") { e.preventDefault(); save(); }
+  });
+  btnCheck.addEventListener("click", check);
+  btnSave.addEventListener("click", save);
+  btnRevert.addEventListener("click", revert);
+
+  filterEl.addEventListener("input", () => {
+    const q = filterEl.value.trim().toLowerCase();
+    Object.values(fileLinks).forEach((a) => {
+      a.style.display = (!q || a.dataset.k.toLowerCase().includes(q)) ? "" : "none";
+    });
+  });
+
+  window.addEventListener("beforeunload", (e) => {
+    if (dirty()) { e.preventDefault(); e.returnValue = ""; }
+  });
+
+  async function init() {
+    const data = await fetchJSON("/api/config/tree");
+    if (!data || !data.roots) { treeEl.innerHTML = '<div class="empty sm">No config roots.</div>'; return; }
+    renderTree(data.roots);
+    // open the first file (usually fleet.yaml)
+    for (const r of data.roots) if (r.files.length) { openFile(r.key, r.files[0].path, r.files[0].kind); break; }
+  }
+  document.getElementById("cfgRefresh").addEventListener("click", init);
+  init();
+})();
+</script>
+{% endblock %}

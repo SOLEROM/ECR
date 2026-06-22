@@ -1,0 +1,420 @@
+{% extends "base.html" %}
+{% block title %}Fleet{% endblock %}
+{% block content %}
+<!-- Deploy / Bring-up / Tear-down and variant are **per-node** (each is on the node's
+     own card/detail). One top bar: selection cluster on the left, health-refresh +
+     the view toggle on the right.
+     GUI parts on this page are tagged guiPart11–guiPart40 (see web/templates/GUIPARTS.md). -->
+
+<!-- guiPart11 — dashboard toolbar (selection cluster + view toggle) -->
+<div class="toolbar" id="guiPart11" data-guipart="11">
+  <!-- guiPart12 — selection cluster (All / Clear / Groups) -->
+  <div class="sel-cluster" id="selRow" data-guipart="12" title="Highlight a subset of nodes (a visual grouping aid; ops are per-node)">
+    <label>Select</label>
+    <button class="btn sm" id="selAll" title="Select every node">All</button>
+    <button class="btn sm" id="selClear" title="Clear the selection">Clear</button>
+    <span class="sep"></span>
+    <label>Groups</label>
+    <div class="sel-groups" id="selGroups">
+      <span class="muted sel-empty">none defined — add them on the Config page</span>
+    </div>
+    <!-- guiPart13 — selection counter -->
+    <span class="muted sel-count" id="selCount" data-guipart="13">no selection</span>
+  </div>
+  <span class="grow"></span>
+  <!-- guiPart14 — health refresh -->
+  <button class="btn ghost" id="btnRefresh" data-guipart="14">⟳ Refresh</button>
+  <!-- guiPart15 — reset custom card order -->
+  <button class="btn ghost hidden" id="btnResetOrder" data-guipart="15" title="Forget the custom drag order and restore the fleet (YAML) order">↕ Reset order</button>
+  <span class="sep"></span>
+  <label>View</label>
+  <!-- guiPart16 — grid / tabs view toggle -->
+  <div class="seg" id="viewSeg" data-guipart="16" title="Switch dashboard layout">
+    <button data-view="grid" title="Matrix of node cards">▦ Grid</button>
+    <button data-view="tabs" title="One node per tab (full detail)">❐ Tabs</button>
+  </div>
+</div>
+
+<!-- guiPart17 — node grid (matrix of cards) -->
+<div class="grid" id="grid" data-guipart="17">
+  {% for n in fleet.nodes %}
+  <!-- guiPart18 — node card (one per node) -->
+  <div class="card ovr-na" id="card-{{n.name}}" data-guipart="18" data-node="{{n.name}}" data-variant="{{ fleet.node_variant(n) }}">
+    <!-- guiPart19 — card header -->
+    <div class="card-head" data-guipart="19">
+      <!-- guiPart21 — drag-to-reorder grip -->
+      <span class="drag-grip" data-guipart="21" title="Drag to reorder — the order is saved in this browser" aria-label="drag to reorder">⠿</span>
+      <!-- guiPart20 — node selection checkbox -->
+      <input type="checkbox" class="nodesel" data-guipart="20" data-node="{{n.name}}">
+      <!-- guiPart22 — node name link -->
+      <a class="name" data-guipart="22" href="/node/{{n.name}}">{{n.name}}</a>
+      <!-- guiPart23 — node id -->
+      <span class="id" data-guipart="23">#{{n.id}}</span>
+      <!-- guiPart24 — node host (roleA) -->
+      <span class="host" data-guipart="24">{{n.host}}</span>
+    </div>
+    <div class="card-body">
+      <!-- guiPart25 — health gates (A–D); guiPart26 = one gate cell -->
+      <div class="gates" data-guipart="25">
+        {% for g,lbl in [('A','A·reach'),('B','B·proc'),('C','C·check'),('D','D·link')] %}
+        <div class="gate na" data-guipart="26" data-gate="{{g}}" title="{{lbl}}"><div class="g">{{lbl}}</div><div class="v">—</div></div>
+        {% endfor %}
+      </div>
+      <!-- guiPart27 — metrics (service up/down pills + counters); guiPart28 = a pill -->
+      <div class="metrics" data-guipart="27">
+        <span class="m"><span class="pill" data-guipart="28" data-d="serviceA"></span>serviceA</span>
+        <span class="m"><span class="pill" data-d="serviceB"></span>serviceB</span>
+        <span class="m vb-only"><span class="pill" data-d="serviceC"></span>serviceC</span>
+        <span class="m">links <b data-f="links">—</b></span>
+        <span class="m">check <b data-f="check">—</b></span>
+        <span class="m vb-only">signal <b data-f="signal">—</b></span>
+      </div>
+    </div>
+    <!-- guiPart30 — card footer (variant toggle + sequence buttons) -->
+    <div class="card-foot" data-guipart="30">
+      <!-- guiPart31 — per-node variant toggle (A / B) -->
+      <div class="seg varseg-node" data-guipart="31" title="variant for this node (A · B)">
+        <button data-nvariant="A" class="{{ 'active' if fleet.node_variant(n)=='A' }}">A</button>
+        <button data-nvariant="B" class="{{ 'active' if fleet.node_variant(n)=='B' }}">B</button>
+      </div>
+      <!-- guiPart32 — Deploy -->
+      <button class="btn sm" data-guipart="32" data-seq="deploy">Deploy</button>
+      <!-- guiPart33 — Bring up -->
+      <button class="btn sm primary" data-guipart="33" data-seq="bring_up">Bring up</button>
+      <!-- guiPart34 — Tear down -->
+      <button class="btn sm warn" data-guipart="34" data-seq="tear_down">Tear down</button>
+    </div>
+  </div>
+  {% endfor %}
+</div>
+
+<!-- guiPart35 — tabs view: one tab per node, each pane embeds the full node detail page -->
+<div id="tabsView" class="hidden" data-guipart="35">
+  <!-- guiPart36 — node tab strip; guiPart37 = a tab; guiPart38 = its health dot -->
+  <div class="nodetabs" id="nodetabs" data-guipart="36">
+    {% for n in fleet.nodes %}
+    <div class="nodetab" id="tab-{{n.name}}" data-guipart="37" data-node="{{n.name}}" title="{{n.host}}">
+      <span class="dot ovr-na" id="tabdot-{{n.name}}" data-guipart="38"></span>
+      <span class="name">{{n.name}}</span><span class="id">#{{n.id}}</span>
+    </div>
+    {% endfor %}
+  </div>
+  <!-- guiPart39 — node panes; guiPart40 = one lazy-loaded detail iframe -->
+  <div class="nodepanes" id="nodepanes" data-guipart="39">
+    {% for n in fleet.nodes %}
+    <div class="nodepane" id="pane-{{n.name}}" data-guipart="40" data-node="{{n.name}}"></div>
+    {% endfor %}
+  </div>
+</div>
+{% endblock %}
+
+{% block scripts %}
+<script>
+
+let GROUPS = [];   // operator-defined selection groups (from /api/fleet)
+
+function allNodeNames() {
+  return [...document.querySelectorAll(".nodesel")].map(c => c.dataset.node);
+}
+function selectedNodes() {
+  const sel = [...document.querySelectorAll(".nodesel:checked")].map(c => c.dataset.node);
+  return sel;  // empty => whole fleet
+}
+// Set the selection to exactly `names` (intersected with the live node grid),
+// then refresh the count + which group buttons read as active. This is the one
+// path the Select line uses — All / Clear / a group button all funnel here.
+function applySelection(names) {
+  const want = new Set(names);
+  document.querySelectorAll(".nodesel").forEach(c => {
+    const on = want.has(c.dataset.node);
+    c.checked = on;
+    c.closest(".card").classList.toggle("sel", on);
+  });
+  onSelectionChanged();
+}
+function refreshSelCount() {
+  const n = selectedNodes().length;
+  document.getElementById("selCount").textContent =
+    n ? `${n} node(s) selected` : "no selection";
+}
+// A group button is "active" when every one of its members is currently selected
+// (so additive Shift-click can light up several at once).
+function refreshGroupActive() {
+  const sel = new Set(selectedNodes());
+  document.querySelectorAll("#selGroups .grp").forEach(b => {
+    const g = GROUPS.find(x => x.name === b.dataset.group);
+    const active = g && g.nodes.length && g.nodes.every(n => sel.has(n));
+    b.classList.toggle("active", !!active);
+  });
+}
+function onSelectionChanged() { refreshSelCount(); refreshGroupActive(); }
+
+// Build the group buttons from config (re-run on fleet_changed → live, no reload).
+function renderGroups(groups) {
+  GROUPS = groups || [];
+  const box = document.getElementById("selGroups");
+  box.innerHTML = "";
+  if (!GROUPS.length) {
+    const e = document.createElement("span");
+    e.className = "muted sel-empty";
+    e.textContent = "none defined — add them on the Config page";
+    box.appendChild(e);
+    return;
+  }
+  GROUPS.forEach(g => {
+    const b = document.createElement("button");
+    b.className = "btn sm grp";
+    b.dataset.group = g.name;
+    const t = document.createElement("span"); t.textContent = g.name;   // textContent: XSS-safe
+    const c = document.createElement("span"); c.className = "gcount"; c.textContent = g.nodes.length;
+    b.append(t, c);
+    b.title = `select ${g.nodes.length} node(s): ${g.nodes.join(", ")}\n(Shift-click to add to the current selection)`;
+    b.onclick = (e) => {
+      const base = e.shiftKey ? selectedNodes() : [];
+      applySelection([...new Set([...base, ...g.nodes])]);
+    };
+    box.appendChild(b);
+  });
+  refreshGroupActive();
+}
+async function loadGroups() {
+  const d = await CCFlet.api("/api/fleet");
+  renderGroups((d && d.groups) || []);
+}
+
+// Variant is per-node: apply one card's A/B state + variant-B metric visibility.
+// The serviceC pill / signal only make sense in variant B (the roleB tier).
+function applyNodeVariant(name, variant) {
+  const card = document.getElementById("card-" + name);
+  if (!card) return;
+  card.dataset.variant = variant;
+  card.querySelectorAll(".varseg-node button").forEach(b =>
+    b.classList.toggle("active", b.dataset.nvariant === variant));
+  card.querySelectorAll(".vb-only").forEach(e =>
+    e.style.display = (variant === "B") ? "" : "none");
+}
+
+function gateClass(s){ return s==="ok"?"gate ok":s==="warn"?"gate warn":s==="fail"?"gate fail":"gate na"; }
+function gateVal(s){ return s==="ok"?"✓":s==="warn"?"!":s==="fail"?"✗":"—"; }
+
+function applyStatus(ns) {
+  const card = document.getElementById("card-" + ns.node);
+  if (!card) return;
+  // gates
+  let worst = "na";
+  ["A","B","C","D"].forEach(g => {
+    const cell = card.querySelector(`.gate[data-gate="${g}"]`);
+    const info = (ns.gates || {})[g] || {state:"na", detail:""};
+    cell.className = gateClass(info.state);
+    cell.querySelector(".v").textContent = gateVal(info.state);
+    cell.title = `Gate ${g}: ${info.detail || info.state}`;
+    if (info.state==="fail") worst="fail";
+    else if (info.state==="warn" && worst!=="fail") worst="warn";
+    else if (info.state==="ok" && worst==="na") worst="ok";
+  });
+  card.className = "card ovr-" + worst + (card.querySelector(".nodesel").checked ? " sel" : "");
+  const dot = document.getElementById("tabdot-" + ns.node);   // mirror health on the tab strip
+  if (dot) dot.className = "dot ovr-" + worst;
+  // pills
+  const setPill = (d, up) => {
+    const p = card.querySelector(`.pill[data-d="${d}"]`);
+    if (p) p.className = "pill " + (up ? "up" : "down");
+  };
+  setPill("serviceA", ns.serviceA && ns.serviceA.up);
+  setPill("serviceB", ns.serviceB && ns.serviceB.up);
+  setPill("serviceC", ns.serviceC && ns.serviceC.up);
+  // metrics
+  const links = ns.links ? ns.links.count : 0;
+  card.querySelector('[data-f="links"]').textContent = links + "/" + (ns.expected_links||0);
+  const c1 = ns.check1 || {};
+  card.querySelector('[data-f="check"]').textContent =
+    c1.present ? ("v" + (c1.value ?? "?")) : "—";
+  const signal = (ns.servicec_stats && ns.servicec_stats.present) ? ns.servicec_stats.signal + "dB" : "—";
+  card.querySelector('[data-f="signal"]').textContent = signal;
+}
+
+async function loadStatus() {
+  const r = await CCFlet.api("/api/fleet/status");
+  Object.values(r.statuses || {}).forEach(applyStatus);
+}
+
+// ---- actions ----
+document.getElementById("btnRefresh").onclick = async () => {
+  await CCFlet.api("/api/fleet/refresh","POST"); CCFlet.toast("refreshing health…"); };
+
+// per-card variant toggle (per-node)
+document.querySelectorAll(".varseg-node button").forEach(b => b.onclick = async (e) => {
+  const node = e.target.closest(".card").dataset.node;
+  const variant = e.target.dataset.nvariant;
+  const r = await CCFlet.api(`/api/node/${node}/variant`,"POST",{variant});
+  if (r.success){ applyNodeVariant(node, r.variant); CCFlet.toast(`${node} → ${CCFlet.variantLabel(r.variant)}`, "ok"); }
+  else CCFlet.toast(r.error || "variant change failed","err");
+});
+
+// per-card sequence buttons
+document.querySelectorAll(".card-foot .btn").forEach(btn => btn.onclick = async (e) => {
+  const node = e.target.closest(".card").dataset.node;
+  const seq = e.target.dataset.seq;
+  const r = await CCFlet.api(`/api/node/${node}/${seq}`,"POST",{});
+  if (r.success) CCFlet.toast(`${seq} → ${node}`, "ok");
+});
+
+// selection — per-card checkbox plus the Select line (All / Clear / group filters)
+document.querySelectorAll(".nodesel").forEach(c => c.onchange = () => {
+  c.closest(".card").classList.toggle("sel", c.checked); onSelectionChanged();
+});
+document.getElementById("selAll").onclick = () => applySelection(allNodeNames());
+document.getElementById("selClear").onclick = () => applySelection([]);
+
+// Custom commands live in the session view (/sessions/<current>) — they report
+// their results straight into that session's event log. See session_view.html.
+
+// live updates
+CCFlet.on("node_status", applyStatus);
+CCFlet.on("node_variant", (d) => applyNodeVariant(d.node, d.variant));
+// fleet inventory edited on the Config page → node set may differ; prompt a reload.
+// Selection groups *can* refresh live (they only touch existing checkboxes).
+CCFlet.on("fleet_changed", () => {
+  loadGroups();
+  CCFlet.toast("fleet config changed — reload to refresh the node grid", "");
+});
+
+// ---- view toggle: grid (matrix) ⇄ tabs (per-node full detail) ----
+// Tabs reuse the node detail page itself (/node/<name>?embed=1) inside an iframe,
+// created lazily on first activation so we never open 10 sockets at once. Visited
+// tabs stay live in the background; switching back is instant with no reload.
+const elGrid = document.getElementById("grid");
+const elTabs = document.getElementById("tabsView");
+const elSelRow = document.getElementById("selRow");
+let curTab = null;
+
+function activateTab(name) {
+  curTab = name;
+  document.querySelectorAll(".nodetab").forEach(t =>
+    t.classList.toggle("active", t.dataset.node === name));
+  document.querySelectorAll(".nodepane").forEach(p =>
+    p.classList.toggle("active", p.dataset.node === name));
+  const pane = document.getElementById("pane-" + name);
+  if (pane && !pane.querySelector("iframe")) {       // lazy-load on first view
+    const f = document.createElement("iframe");
+    f.src = "/node/" + encodeURIComponent(name) + "?embed=1";
+    f.title = name;
+    pane.appendChild(f);
+  }
+}
+
+function setView(view) {
+  const tabs = view === "tabs";
+  elGrid.classList.toggle("hidden", tabs);
+  elTabs.classList.toggle("hidden", !tabs);
+  elSelRow.classList.toggle("hidden", tabs);         // selection is grid-only
+  document.querySelectorAll("#viewSeg button").forEach(b =>
+    b.classList.toggle("active", b.dataset.view === view));
+  try { localStorage.setItem("ccflet_view", view); } catch (e) {}
+  if (tabs && !curTab) {
+    const first = document.querySelector(".nodetab");
+    if (first) activateTab(first.dataset.node);
+  }
+}
+
+document.querySelectorAll("#viewSeg button").forEach(b =>
+  b.onclick = () => setView(b.dataset.view));
+document.querySelectorAll(".nodetab").forEach(t =>
+  t.onclick = () => activateTab(t.dataset.node));
+
+let savedView = "grid";
+try { savedView = localStorage.getItem("ccflet_view") || "grid"; } catch (e) {}
+setView(savedView);
+
+// ---- drag to reorder node cards (grid) ---------------------------------
+// The operator drags cards by the ⠿ grip to group them in whatever order they
+// like; the order is saved per-browser (localStorage) and re-applied on load.
+// This is purely a visual grouping aid — ops stay per-node, nothing on the
+// server changes. The fleet (YAML) order is the reset target.
+const ORDER_KEY = "ccflet_card_order";
+// capture the as-rendered (fleet.yaml) order BEFORE any saved order is applied
+const FLEET_ORDER = [...elGrid.querySelectorAll(".card")].map(c => c.dataset.node);
+let dragCard = null;
+
+function loadOrder() {
+  try { return JSON.parse(localStorage.getItem(ORDER_KEY)) || []; } catch (e) { return []; }
+}
+// reorder a parent's children (cards / tabs) to match `order`; unknown nodes
+// (e.g. just-added in config) sink to the end in their existing order.
+function reflow(parent, sel, order) {
+  const rank = new Map(order.map((n, i) => [n, i]));
+  const at = (el) => rank.has(el.dataset.node) ? rank.get(el.dataset.node) : 1e9;
+  [...parent.querySelectorAll(sel)]
+    .sort((a, b) => at(a) - at(b))
+    .forEach(el => parent.appendChild(el));
+}
+function applyOrder(order) {
+  if (!order || !order.length) return;
+  reflow(elGrid, ".card", order);
+  const strip = document.getElementById("nodetabs");   // keep the tab strip in sync
+  if (strip) reflow(strip, ".nodetab", order);
+}
+function persistOrder() {
+  const order = [...elGrid.querySelectorAll(".card")].map(c => c.dataset.node);
+  const custom = order.some((n, i) => n !== FLEET_ORDER[i]);
+  try {
+    if (custom) localStorage.setItem(ORDER_KEY, JSON.stringify(order));
+    else localStorage.removeItem(ORDER_KEY);
+  } catch (e) {}
+  document.getElementById("btnResetOrder").classList.toggle("hidden", !custom);
+  const strip = document.getElementById("nodetabs");
+  if (strip) reflow(strip, ".nodetab", order);
+}
+
+function wireDrag(card) {
+  const grip = card.querySelector(".drag-grip");
+  // only the grip arms dragging, so card buttons / the name link / text
+  // selection keep working normally (draggable=true disables selection).
+  if (grip) {
+    grip.addEventListener("mousedown", () => { card.draggable = true; });
+    grip.addEventListener("mouseup", () => { card.draggable = false; });
+  }
+  card.addEventListener("dragstart", (e) => {
+    dragCard = card;
+    card.classList.add("dragging");
+    e.dataTransfer.effectAllowed = "move";
+    try { e.dataTransfer.setData("text/plain", card.dataset.node); } catch (_) {}
+  });
+  card.addEventListener("dragend", () => {
+    card.classList.remove("dragging");
+    card.draggable = false;
+    dragCard = null;
+    persistOrder();
+  });
+  card.addEventListener("dragover", (e) => {
+    if (!dragCard || dragCard === card) return;
+    e.preventDefault();                                   // allow the drop
+    const r = card.getBoundingClientRect();               // left/top half → before, else after
+    const before = (e.clientX - r.left) < r.width / 2;
+    card[before ? "before" : "after"](dragCard);
+  });
+}
+document.getElementById("btnResetOrder").onclick = () => {
+  try { localStorage.removeItem(ORDER_KEY); } catch (e) {}
+  applyOrder(FLEET_ORDER);
+  document.getElementById("btnResetOrder").classList.add("hidden");
+  CCFlet.toast("card order reset to fleet default");
+};
+
+(function initOrder() {
+  const saved = loadOrder();
+  if (saved.length) {
+    applyOrder(saved);
+    document.getElementById("btnResetOrder").classList.remove("hidden");
+  }
+  elGrid.querySelectorAll(".card").forEach(wireDrag);
+})();
+
+// seed each card's variant (A/B active state + variant-B metric visibility) from data-variant
+document.querySelectorAll(".card[data-variant]").forEach(c =>
+  applyNodeVariant(c.dataset.node, c.dataset.variant));
+loadGroups();
+loadStatus();
+setInterval(loadStatus, 5000);   // safety refresh in addition to push
+</script>
+{% endblock %}

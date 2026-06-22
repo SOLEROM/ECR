@@ -1,0 +1,10 @@
+# cc — runtime + local artifacts
+runs/
+*.zip
+__pycache__/
+*.pyc
+.pytest_cache/
+.coverage
+htmlcov/
+# project venv lives at .venv/ in the project root
+.venv/

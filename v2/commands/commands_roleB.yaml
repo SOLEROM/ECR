@@ -1,0 +1,30 @@
+# ccFleet command catalog — REMOTE commands on roleB  🛰  (config over code)
+#
+# Every command in THIS file is sent over SSH to a node's roleB host, reached
+# THROUGH roleA as a jump-host. Because the file says so, you do NOT write `on:` or
+# `role:` — it is remote/roleB. roleB is only reachable in variant B; a roleB command
+# run in variant A will simply fail to connect (and be audited as such).
+# Edit from the Config page — validated on save, hot-reloaded (no restart), audited.
+#
+#   scope: node   = a per-node button (fans out across a selection)  [default here]
+#          fleet  = a single button (runs on the selection / whole fleet)
+#   run:   an inline command        — OR —        script: a *.sh file in this folder
+#   timeout / danger (red styling + audit emphasis; there is NO confirm prompt)
+#
+#   {param} placeholders (the node's derived params):
+#     {ID} {SUBNET} {HOST_B} {VAR_ADDR} {VAR_FLAG} {ALGO} {VARIANT}
+settings:
+  default_timeout: 60
+
+commands:
+  roleB_uptime:
+    label: "roleB uptime"
+    group: Diagnostics
+    scope: fleet
+    run: "uptime"
+
+  servicec_log:
+    label: "serviceC log tail"
+    group: Diagnostics
+    scope: node
+    run: "tail -n 40 /tmp/serviceC.log"

@@ -1,0 +1,37 @@
+# ccFleet command catalog — REMOTE commands on roleA  🛰  (config over code)
+#
+# Every command in THIS file is sent over SSH to a node's roleA host.
+# Because the file says so, you do NOT write `on:` or `role:` — it is remote/roleA.
+# Edit from the Config page — validated on save, hot-reloaded (no restart), audited.
+#
+#   scope: node   = a per-node button (fans out across a selection)  [default here]
+#          fleet  = a single button (runs on the selection / whole fleet)
+#   run:   an inline command        — OR —        script: a *.sh file in this folder
+#   timeout / danger (red styling + audit emphasis; there is NO confirm prompt)
+#
+#   {param} placeholders (the node's derived params):
+#     {ID} {HOST_A} {SUBNET} {HOST_B} {VAR_ADDR} {VAR_LAUNCHER} {VAR_FLAG}
+#     {ALGO} {VARIANT} {DEPLOY_ROOT}
+settings:
+  default_timeout: 60
+
+commands:
+  df_data:
+    label: "Disk /data"
+    group: Diagnostics
+    scope: node
+    run: "df -h {DEPLOY_ROOT}"
+
+  uptime:
+    label: "Uptime"
+    group: Diagnostics
+    scope: fleet
+    run: "uptime"
+
+  reboot_roleA:
+    label: "Reboot roleA"
+    group: Maintenance
+    scope: node
+    run: "sudo reboot"
+    danger: true
+    timeout: 20

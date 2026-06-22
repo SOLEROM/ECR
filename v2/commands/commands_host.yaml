@@ -1,0 +1,29 @@
+# ccFleet command catalog — LOCAL (base-station) commands  🖥  (config over code)
+#
+# Every command in THIS file runs on the machine hosting ccFleet (the base station),
+# not on a fleet node. Because the file says so, you do NOT write `on:` or `role:`.
+# These are typically housekeeping tasks. Edit from the Config page — validated on
+# save, hot-reloaded (no restart), every save + run audited.
+#
+#   scope: fleet  = one button (the default here)   |   node = per-node button
+#   run:   an inline command        — OR —        script: a *.sh file in this folder
+#   timeout / danger (red styling + audit emphasis; there is NO confirm prompt)
+#
+#   {param} placeholders (local context, also exported to scripts as CCFLET_*):
+#     {RUNS_DIR} {FLEET} {VARIANT} {ALGO} {NODES}
+#   NOTE: local commands echo (do not execute) under --mock / --dry-run, and can be
+#   disabled entirely with --no-local-commands.
+settings:
+  default_timeout: 60
+
+commands:
+  base_disk:
+    label: "Base-station disk"
+    group: Housekeeping
+    run: "df -h ."
+
+  archive_runs:
+    label: "Archive old runs"
+    group: Housekeeping
+    script: "archive_runs.sh"
+    timeout: 120

@@ -1,0 +1,200 @@
+{% extends "base.html" %}
+{% block title %}Help{% endblock %}
+{% block content %}
+<!-- Help / design docs. GUI parts tagged guiPart109–guiPart119 (see web/templates/GUIPARTS.md). -->
+<!-- guiPart109 — page title -->
+<h1 class="page" data-guipart="109">Help &amp; Design
+  <span class="muted" style="font-size:13px;font-weight:400">— the ccFleet system, explained</span>
+</h1>
+
+<div class="help">
+  <!-- guiPart110 — help sidebar (doc tree) -->
+  <aside class="help-side" data-guipart="110">
+    <div class="side-head">
+      <!-- guiPart111 — filter · guiPart112 — refresh tree -->
+      <input type="text" id="docFilter" data-guipart="111" placeholder="filter docs…" autocomplete="off">
+      <button class="btn sm ghost" id="docRefresh" data-guipart="112" title="Reload the tree from disk">↻</button>
+    </div>
+    <!-- guiPart113 — doc tree; guiPart114 = a dir, guiPart115 = a file (built in JS) -->
+    <div class="tree" id="docTree" data-guipart="113"><div class="empty sm">loading…</div></div>
+  </aside>
+
+  <section class="help-doc">
+    <!-- guiPart116 — doc viewer header; guiPart117 — title; guiPart118 — path -->
+    <div class="doc-head" data-guipart="116"><h2 id="docTitle" class="doc-title" data-guipart="117">…</h2></div>
+    <div class="doc-path mono" id="docPath" data-guipart="118"></div>
+    <!-- guiPart119 — rendered markdown content -->
+    <div class="md-body" id="docContent" data-guipart="119"><div class="empty">Select a document.</div></div>
+  </section>
+</div>
+{% endblock %}
+
+{% block scripts %}
+<script>
+(function () {
+  const treeEl   = document.getElementById("docTree");
+  const content  = document.getElementById("docContent");
+  const titleEl  = document.getElementById("docTitle");
+  const pathEl   = document.getElementById("docPath");
+  const filterEl = document.getElementById("docFilter");
+  const fileLinks = {};            // rel path -> <a> in the tree
+  let currentPath = null;
+
+  // The design docs are team-authored + server-rendered (python-markdown), at the
+  // same trust level as the templates — so innerHTML here is fine. Untrusted
+  // strings elsewhere (notes, usernames) still use textContent.
+
+  function escapeHtml(s) {
+    return String(s).replace(/[&<>"]/g, c =>
+      ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;" }[c]));
+  }
+
+  async function fetchJSON(url) {
+    try {
+      const r = await fetch(url, { headers: { "X-CCFlet-User": JSON.stringify(CCFlet.user) } });
+      if (!r.ok) return null;
+      return await r.json();
+    } catch (e) { return null; }
+  }
+
+  // ---- tree rendering (dynamic — whatever the folder holds) ----
+  function renderTree(nodes, container) {
+    nodes.forEach((n) => {
+      if (n.type === "dir") {
+        const grp = document.createElement("div");
+        grp.className = "tree-dir";
+        const head = document.createElement("div");
+        head.className = "tree-dir-head";
+        const caret = document.createElement("span");
+        caret.className = "caret"; caret.textContent = "▾";
+        const label = document.createElement("span");
+        label.textContent = n.name;
+        head.append(caret, label);
+        head.addEventListener("click", () => grp.classList.toggle("collapsed"));
+        const kids = document.createElement("div");
+        kids.className = "tree-kids";
+        renderTree(n.children, kids);
+        grp.append(head, kids);
+        container.appendChild(grp);
+      } else {
+        const a = document.createElement("a");
+        a.className = "tree-file";
+        a.href = "#" + encodeURIComponent(n.path);
+        a.dataset.path = n.path;
+        const t = document.createElement("span");
+        t.className = "tf-title"; t.textContent = n.title || n.name;
+        a.appendChild(t);
+        if (n.summary) {
+          const s = document.createElement("span");
+          s.className = "tf-sum"; s.textContent = n.summary; a.title = n.summary;
+          a.appendChild(s);
+        }
+        a.addEventListener("click", (e) => { e.preventDefault(); loadDoc(n.path); });
+        fileLinks[n.path] = a;
+        container.appendChild(a);
+      }
+    });
+  }
+
+  function firstPath(nodes) {
+    for (const n of nodes) {
+      if (n.type === "file") return n.path;
+      const f = firstPath(n.children); if (f) return f;
+    }
+    return null;
+  }
+
+  function setActive(path) {
+    Object.values(fileLinks).forEach((a) => a.classList.remove("active"));
+    if (fileLinks[path]) fileLinks[path].classList.add("active");
+  }
+
+  // resolve a relative .md href against the current doc's directory
+  function resolveRel(basePath, href) {
+    const dir = basePath && basePath.includes("/")
+      ? basePath.slice(0, basePath.lastIndexOf("/")) : "";
+    const parts = (dir ? dir.split("/") : []).concat(href.split("/"));
+    const stack = [];
+    for (const p of parts) {
+      if (p === "" || p === ".") continue;
+      if (p === "..") stack.pop(); else stack.push(p);
+    }
+    return stack.join("/");
+  }
+
+  function scrollToAnchor(id) {
+    const el = id && content.querySelector("#" + CSS.escape(id));
+    if (el) el.scrollIntoView({ behavior: "smooth", block: "start" });
+  }
+
+  async function loadDoc(path, anchor) {
+    if (!path) return;
+    content.innerHTML = '<div class="empty"><span class="spin"></span></div>';
+    const doc = await fetchJSON("/api/design/doc?path=" + encodeURIComponent(path));
+    if (!doc || !doc.html) {
+      titleEl.textContent = "Not found";
+      pathEl.textContent = "";
+      content.innerHTML = '<div class="empty">Could not load <code>' +
+        escapeHtml(path) + "</code></div>";
+      return;
+    }
+    currentPath = doc.path;
+    titleEl.textContent = doc.title || doc.path;
+    pathEl.textContent = "design/" + doc.path;
+    content.innerHTML = doc.html;
+    setActive(doc.path);
+    if (location.hash.slice(1) !== encodeURIComponent(doc.path))
+      location.hash = encodeURIComponent(doc.path);
+    if (anchor) scrollToAnchor(anchor);
+    else { content.scrollTop = 0; window.scrollTo(0, 0); }
+  }
+
+  // in-doc links: #anchors scroll, *.md links navigate inside the viewer
+  content.addEventListener("click", (e) => {
+    const a = e.target.closest("a"); if (!a) return;
+    const href = a.getAttribute("href") || "";
+    if (href.startsWith("#")) { e.preventDefault(); scrollToAnchor(href.slice(1)); return; }
+    if (/^https?:\/\//i.test(href)) return;       // external → default
+    const m = href.match(/^([^?#]+\.md)(?:#(.+))?$/i);
+    if (m) { e.preventDefault(); loadDoc(resolveRel(currentPath, m[1]), m[2] || null); }
+  });
+
+  // filter (docs grow over time — keep them findable)
+  filterEl.addEventListener("input", () => {
+    const q = filterEl.value.trim().toLowerCase();
+    Object.values(fileLinks).forEach((a) => {
+      const hay = (a.dataset.path + " " + a.textContent).toLowerCase();
+      a.style.display = (!q || hay.includes(q)) ? "" : "none";
+    });
+    treeEl.querySelectorAll(".tree-dir").forEach((d) => {
+      const any = Array.from(d.querySelectorAll(".tree-file"))
+        .some((a) => a.style.display !== "none");
+      d.style.display = any ? "" : "none";
+    });
+  });
+
+  window.addEventListener("hashchange", () => {
+    const p = decodeURIComponent(location.hash.slice(1));
+    if (p && p !== currentPath && fileLinks[p]) loadDoc(p);
+  });
+
+  async function init() {
+    Object.keys(fileLinks).forEach((k) => delete fileLinks[k]);
+    const data = await fetchJSON("/api/design/tree");
+    treeEl.innerHTML = "";
+    if (!data || !data.tree || !data.tree.length) {
+      treeEl.innerHTML = '<div class="empty sm">No design docs found.</div>';
+      content.innerHTML = '<div class="empty">The <code>design/</code> folder is empty.</div>';
+      titleEl.textContent = "Help";
+      return;
+    }
+    renderTree(data.tree, treeEl);
+    const hashPath = location.hash ? decodeURIComponent(location.hash.slice(1)) : null;
+    loadDoc((hashPath && fileLinks[hashPath]) ? hashPath : firstPath(data.tree));
+  }
+
+  document.getElementById("docRefresh").addEventListener("click", init);
+  init();
+})();
+</script>
+{% endblock %}

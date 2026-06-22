@@ -1,0 +1,43 @@
+# roleB profile (role: roleB) — reached via the roleA jump-host (connection.via).
+# Only used in variant B. roleB has no systemd here, so serviceC is run detached +
+# pidfile by the supervisor. serviceC-before-serviceA is enforced by the
+# orchestrator's variant-B bring-up sequence.
+name: roleB
+connection:
+  user: "{roleB_user}"
+  host: "{HOST_B}"
+  via: "{roleA_user}@{HOST_A}"
+  port: 22
+  timeout: 5
+
+actions:
+  serviceC_start:
+    kind: daemon
+    name: serviceC
+    command: "/opt/serviceC/serviceC --node-id {ID} --aux"
+  serviceC_stop:
+    kind: daemon_stop
+    name: serviceC
+    match: "serviceC"
+  serviceC_status:
+    kind: daemon_status
+    name: serviceC
+    match: "serviceC"
+
+  probeA_status:
+    kind: exec
+    command: "ccfleet-probe --get status/probeA"
+    timeout: 10
+  probeB_status:
+    kind: exec
+    command: "ccfleet-probe --get status/probeB"
+    timeout: 10
+
+collectors:
+  servicec:
+    command: "tail -n 5 /tmp/serviceC.log"
+    interval: 1
+    parser: servicec_stats
+
+logs:
+  serviceC: /tmp/serviceC.log

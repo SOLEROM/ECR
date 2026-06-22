@@ -1,0 +1,100 @@
+{% extends "base.html" %}
+{% block title %}Sessions{% endblock %}
+{% block content %}
+<!-- Sessions list. GUI parts tagged guiPart63–guiPart74 (see web/templates/GUIPARTS.md). -->
+<!-- guiPart63 — page toolbar -->
+<div class="toolbar" data-guipart="63">
+  <strong>Ops sessions</strong>
+  <span class="muted">— append-only audit of every action &amp; result</span>
+  <span class="grow"></span>
+  <!-- guiPart64 — new-session input + button -->
+  <input type="text" id="newName" data-guipart="64" placeholder="new session name (optional)">
+  <button class="btn primary" id="btnNew" data-guipart="64">+ New session</button>
+</div>
+
+<div class="panel">
+  <!-- guiPart65 — sessions table -->
+  <table data-guipart="65">
+    <thead><tr><th class="pin-col" title="Pin to the bottom bar">📌</th>
+      <th>Session</th><th>Status</th><th>Variant</th><th>Algo</th>
+      <th>Nodes</th><th>Created</th><th></th></tr></thead>
+    <tbody id="rows">
+      {% for s in sessions %}
+      <tr data-sid="{{ s.session_id }}">
+        <!-- guiPart66 — pin toggle -->
+        <td class="pin-col"><button class="pin-btn" data-guipart="66" data-pin="{{ s.session_id }}"
+          title="Pin to the bottom bar">☆</button></td>
+        <!-- guiPart67 — session name link -->
+        <td><a href="/sessions/{{ s.session_id }}" data-guipart="67">{{ s.name }}</a>
+          {% if s.session_id == current %}<span class="tag open">active</span>{% endif %}</td>
+        <!-- guiPart68 — status badge -->
+        <td><span class="tag {{ s.status }}" data-guipart="68">{{ s.status }}</span></td>
+        <!-- guiPart69 — variant / algo / node-count -->
+        <td class="mono" data-guipart="69">{{ s.variant }}</td>
+        <td class="mono">{{ s.algo }}</td>
+        <td class="mono">{{ s.node_names|length }}</td>
+        <!-- guiPart70 — created timestamp -->
+        <td class="muted mono" data-guipart="70">{{ s.created_at[:19].replace('T',' ') }}</td>
+        <td style="text-align:right">
+          <!-- guiPart71 — rename · guiPart72 — close · guiPart73 — export · guiPart74 — delete -->
+          <button class="btn sm ghost" data-guipart="71" data-rename="{{ s.session_id }}" data-name="{{ s.name }}">rename</button>
+          {% if s.status == 'open' %}
+          <button class="btn sm warn" data-guipart="72" data-close="{{ s.session_id }}">close</button>{% endif %}
+          <a class="btn sm ghost" data-guipart="73" href="/sessions/{{ s.session_id }}/export">ZIP</a>
+          {% if s.session_id != current %}
+          <button class="btn sm danger" data-guipart="74" data-del="{{ s.session_id }}">del</button>{% endif %}
+        </td>
+      </tr>
+      {% endfor %}
+    </tbody>
+  </table>
+  {% if not sessions %}<div class="empty">no sessions yet</div>{% endif %}
+</div>
+{% endblock %}
+
+{% block scripts %}
+<script>
+document.getElementById("btnNew").onclick = async () => {
+  const name = document.getElementById("newName").value.trim();
+  const r = await CCFlet.api("/api/sessions","POST",{name});
+  if (r.success){ CCFlet.toast("session started","ok"); location.reload(); }
+};
+document.querySelectorAll("[data-rename]").forEach(b => b.onclick = async (e) => {
+  const sid = e.currentTarget.dataset.rename, cur = e.currentTarget.dataset.name || "";
+  const name = (prompt("Rename session", cur) || "").trim();
+  if (!name || name === cur) return;
+  const r = await CCFlet.api("/api/sessions/"+encodeURIComponent(sid)+"/rename","POST",{name});
+  if (r.ok){ CCFlet.toast("renamed → "+name,"ok"); location.reload(); }
+  else CCFlet.toast(r.error||"rename failed","err");
+});
+document.querySelectorAll("[data-close]").forEach(b => b.onclick = async (e) => {
+  const sid = e.currentTarget.dataset.close;
+  if (!confirm("Close session "+sid+"?")) return;
+  const r = await CCFlet.api("/api/sessions/"+encodeURIComponent(sid)+"/close","POST");
+  if (r.success){ CCFlet.toast("session closed","ok"); location.reload(); }
+  else CCFlet.toast(r.error||"close failed","err");
+});
+document.querySelectorAll("[data-del]").forEach(b => b.onclick = async (e) => {
+  if (!confirm("Delete session "+e.target.dataset.del+"?")) return;
+  const r = await CCFlet.api("/api/sessions/"+e.target.dataset.del,"DELETE");
+  if (r.success){ e.target.closest("tr").remove(); CCFlet.toast("deleted","ok"); }
+  else CCFlet.toast(r.error||"delete failed","err");
+});
+
+// ---- pin a session to the bottom bar (state shared via CCFlet.togglePin) ----
+function syncPinBtns(){
+  document.querySelectorAll(".pin-btn").forEach(b => {
+    const on = CCFlet.isPinned(b.dataset.pin);
+    b.classList.toggle("on", on);
+    b.textContent = on ? "★" : "☆";
+    b.title = on ? "Unpin from the bottom bar" : "Pin to the bottom bar";
+  });
+}
+document.querySelectorAll(".pin-btn").forEach(b => b.onclick = () => {
+  const on = CCFlet.togglePin(b.dataset.pin);   // updates the bottom bar live (onPinsChanged)
+  syncPinBtns();
+  CCFlet.toast(on ? "pinned to bottom bar" : "unpinned", "ok");
+});
+syncPinBtns();
+</script>
+{% endblock %}
