@@ -277,7 +277,9 @@ body.embed h1.page { display: none; }
 
 /* ---- timeline / events --------------------------------------------- */
 .events { font-family: var(--mono); font-size: 12.5px; }
-.ev { display: flex; gap: 9px; padding: 4px 2px; border-bottom: 1px solid var(--border-soft); align-items: baseline; }
+/* flex-wrap so a custom command's output (.ev-out, flex-basis:100%) drops to its own
+   line below the row instead of stretching it. */
+.ev { display: flex; flex-wrap: wrap; gap: 9px; padding: 4px 2px; border-bottom: 1px solid var(--border-soft); align-items: baseline; }
 .ev .t { color: var(--dim); min-width: 62px; }
 .ev .ty { min-width: 150px; }
 .ev .who { font-size: 11px; padding: 0 6px; border-radius: 8px; color: #08090c; font-weight: 700; }
@@ -287,6 +289,25 @@ body.embed h1.page { display: none; }
 .ev.k-seq .ty { color: var(--purple); }
 .ev.k-info .ty { color: var(--blue); }
 .ev.k-note .ty { color: var(--yellow); }
+/* state_changed: a tiny dot in the new color, echoing the States-bar LED */
+.ev .sdot { width: 8px; height: 8px; border-radius: 50%; background: var(--dim); flex: none; align-self: center; }
+.ev .sdot.c-green  { background: var(--green); }
+.ev .sdot.c-yellow { background: var(--yellow); }
+.ev .sdot.c-red    { background: var(--red); }
+.ev .sdot.c-blue   { background: var(--blue); }
+.ev .sdot.c-purple { background: var(--purple); }
+.ev .sdot.c-orange { background: var(--orange); }
+.ev .sdot.c-gray   { background: var(--dim); }
+/* custom-command output: a fold-away "▸ output" toggle + the captured block */
+.ev .ev-toggle { color: var(--dim); cursor: pointer; font-size: 11px; flex: none; user-select: none; padding: 0 2px; }
+.ev .ev-toggle:hover { color: var(--text); }
+.ev .ev-out { flex-basis: 100%; width: 100%; margin: 6px 0 2px 71px; background: var(--code-bg);
+  border: 1px solid var(--border); border-radius: 6px; padding: 8px 10px; font-size: 11.5px;
+  color: var(--code-fg); white-space: pre-wrap; word-break: break-word; max-height: 320px; overflow: auto; }
+.ev .ev-out-h { color: var(--dim); margin-top: 8px; }
+.ev .ev-out-h:first-child { margin-top: 0; }
+.ev .ev-out-body { display: block; }
+.ev .ev-out-err { color: var(--red); }
 
 /* ---- table ---------------------------------------------------------- */
 table { width: 100%; border-collapse: collapse; }
@@ -388,11 +409,18 @@ h1.page { font-size: 20px; margin-bottom: 14px; display: flex; align-items: cent
 .cfg-head .doc-path { margin: 0; font-size: 12px; color: var(--muted); }
 .cfg-head .grow { flex: 1; }
 .cfg-head .unsaved { color: var(--yellow); }
-.cfg-text { flex: 1; width: 100%; min-height: 50vh; resize: vertical; border: none;
+/* editor = line-number gutter + textarea, sharing font metrics so rows align */
+.cfg-textwrap { flex: 1; display: flex; min-height: 50vh; overflow: hidden;
+  background: var(--bg); }
+.cfg-gutter { flex: 0 0 auto; padding: 12px 8px 12px 12px; text-align: right;
+  font-size: 13px; line-height: 1.5; color: var(--dim); background: var(--bg-1);
+  border-right: 1px solid var(--border-soft); white-space: pre; overflow: hidden;
+  user-select: none; -webkit-user-select: none; }
+.cfg-text { flex: 1; width: 100%; resize: none; border: none;
   background: var(--bg); color: var(--text); font-size: 13px; line-height: 1.5;
   padding: 12px 14px; border-radius: 0; outline: none; tab-size: 2; white-space: pre;
   overflow: auto; }
-.cfg-text:focus { box-shadow: inset 0 2px 0 var(--blue); }
+.cfg-textwrap:focus-within { box-shadow: inset 0 2px 0 var(--blue); }
 .cfg-problems { font-family: var(--mono); font-size: 12px; padding: 9px 14px; min-height: 18px;
   border-top: 1px solid var(--border-soft); color: var(--dim); white-space: pre-wrap; }
 .cfg-problems.ok { color: var(--green); }

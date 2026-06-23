@@ -169,7 +169,12 @@ local runs via `core/local_exec.run_local(...)`. Both produce the same
   `--mock`/`--dry-run`**, gated by `--no-local-commands`, and runs as the app user.
 - **Audit everything (P6).** Saves emit `CONFIG_SAVED` + `CONFIG_RELOADED`; custom
   commands emit the usual `ACTION_STARTED`/`COMPLETED`/`FAILED` with
-  `extra={on, scope, danger}`.
+  `extra={on, scope, danger}`. The completion carries every per-target `result`
+  (`stdout`/`stderr`/`exit_code`), so the captured output is durably in `events.jsonl`.
+- **The session timeline stays compact.** A custom-command completion renders as a
+  one-line `… — N/N ok`; the captured output is **folded behind a `▸ output` toggle**
+  (`web/templates/session_view.html`) that expands a per-target block inline — output is
+  recorded and reviewable without overloading the timeline.
 
 ## Change points
 

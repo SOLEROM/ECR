@@ -47,6 +47,8 @@ class EventType(str, Enum):
     COLLECTOR_OUTPUT = "collector_output"
     COLLECTOR_ERROR = "collector_error"
     GATE_CHANGED = "gate_changed"
+    # A States-bar LED flipped color (off-fleet ping link / base-station cmd state)
+    STATE_CHANGED = "state_changed"
 
     # Live log streaming
     STREAM_STARTED = "stream_started"

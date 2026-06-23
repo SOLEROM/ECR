@@ -26,6 +26,14 @@ states:
       default_color: yellow   # any other exit code (e.g. df unavailable)
       hint: root filesystem under 90% used
 
+    - key: test
+      label: testLed
+      cmd: " ls /tmp/ledfile "
+      return_colors:
+        0: green          # under 90% used
+        1: red            # 90%+ used
+      hint: create /tmp/ledfile to see that chagnes
+
     # 2) 1-minute load average: under 4 → green, under 8 → yellow, else red
     - key: load
       label: Load

@@ -224,3 +224,37 @@ def test_monitor_broadcasts_in_order(tmp_path):
     mon = StateMonitor(reg, sync_manager=fs, simulate=True)
     mon.poll_once()
     assert fs.calls and [s["key"] for s in fs.calls[0]] == ["gw", "disk"]
+
+
+def test_monitor_on_change_only_on_transition(tmp_path):
+    # on_change fires when an LED's color flips between polls — but the first poll is
+    # the baseline (no prior reading) so it stays quiet, and a steady color repeats nothing.
+    reg = _reg(tmp_path)
+    changes = []
+    code = {"v": 0}                                   # disk runner exit code (0=green, 1=red)
+    mon = StateMonitor(reg, simulate=False, allow_local=True,
+                       pinger=lambda h, t: True,      # gw steady-green → never a change
+                       runner=lambda c, t: code["v"],
+                       on_change=lambda st, old: changes.append((st["key"], old, st["color"])))
+
+    mon.poll_once()                                   # baseline: gw green, disk green
+    assert changes == []                              # first poll emits nothing
+
+    code["v"] = 1                                     # disk → red
+    mon.poll_once()
+    assert changes == [("disk", "green", "red")]      # exactly the transition
+
+    mon.poll_once()                                   # disk still red
+    assert len(changes) == 1                          # steady color → no repeat
+
+    code["v"] = 0                                     # disk recovers → green
+    mon.poll_once()
+    assert changes[-1] == ("disk", "red", "green")
+
+
+def test_monitor_no_on_change_hook_is_safe(tmp_path):
+    # the hook is optional — polling without one must not raise.
+    reg = _reg(tmp_path)
+    mon = StateMonitor(reg, simulate=False, pinger=lambda h, t: False, runner=lambda c, t: 1)
+    mon.poll_once()
+    mon.poll_once()                                   # a transition with no hook wired

@@ -3,6 +3,9 @@ Status-LED monitor for ccflet — drives the **States bar** under the header.
 
 Polls every configured state indicator (``core/states.py``) **from the base station**
 and broadcasts the result over SocketIO (``states_status``) so each LED takes its color.
+When a poll finds an LED's color *changed* from the previous poll it also fires an
+optional ``on_change`` hook — CCFletApp wires that to a ``STATE_CHANGED`` line in the
+live session log, so a link going down (or recovering) is audited like any action (P6).
 Two indicator kinds, one bar:
 
   - **ping** — ICMP-ping an off-fleet host (reachable → green, no reply → red). The
@@ -71,13 +74,17 @@ class StateMonitor:
     def __init__(self, registry: StateRegistry, sync_manager=None, simulate: bool = False,
                  allow_local: bool = True,
                  pinger: Callable[[str, float], bool] = ping_once,
-                 runner: Callable[[str, float], int] = _run_cmd):
+                 runner: Callable[[str, float], int] = _run_cmd,
+                 on_change: Optional[Callable[[Dict[str, Any], str], None]] = None):
         self.registry = registry          # reloaded in place by CCFletApp.reload_config
         self.sync = sync_manager
         self.simulate = simulate          # mock/dry-run → report healthy, never touch I/O
         self.allow_local = allow_local    # --no-local-commands → cmd states stay neutral
         self._pinger = pinger
         self._runner = runner
+        # fired (state, old_color) when an LED's color flips between polls — wired by
+        # CCFletApp to drop a STATE_CHANGED line in the live session log (audit, P6).
+        self._on_change = on_change
         self._states: Dict[str, Dict[str, Any]] = {}
         self._lock = threading.Lock()
         self._thread: Optional[threading.Thread] = None
@@ -128,9 +135,30 @@ class StateMonitor:
                         states[ind.key] = _state(ind, ind.default_color or GRAY,
                                                  "check failed")
         with self._lock:
+            prev = self._states
             self._states = states
         self._broadcast(states)
+        self._notify_changes(prev, states)
         return states
+
+    def _notify_changes(self, prev: Dict[str, Dict[str, Any]],
+                        states: Dict[str, Dict[str, Any]]):
+        """Fire ``on_change`` for every indicator whose color flipped since the last
+        poll. The first poll (no prior reading for a key) is the baseline and emits
+        nothing — so boot, a fresh start, or a config reload doesn't spam the session
+        log; only genuine transitions are recorded."""
+        if not self._on_change:
+            return
+        for ind in self.registry.indicators:
+            new = states.get(ind.key)
+            old = prev.get(ind.key)
+            if not new or not old:
+                continue                       # new/removed indicator → no transition
+            if old.get("color") != new.get("color"):
+                try:
+                    self._on_change(new, old.get("color"))
+                except Exception:              # noqa: BLE001 — a logging hook must never kill the poll
+                    pass
 
     # ---- read ------------------------------------------------------------
     def snapshot(self) -> List[Dict[str, Any]]:

@@ -82,6 +82,17 @@ networks/  ──► core/networks.py  (ping model)  ┐
 config-validated bare token passed as an argv element — no shell). A cmd state runs via
 the base-station local-exec path (`core/local_exec.py`).
 
+## Transitions are audited (P6)
+
+When a poll finds an LED's **color changed** from the previous poll, the monitor fires an
+`on_change` hook (wired in `app.py`) that appends a **`STATE_CHANGED`** event to the live
+session log — e.g. `Upstream · green → red — no reply (10.0.0.2)`, with a tiny dot in the
+new color echoing the bar. So a link dropping (or recovering) mid-run is recorded in the
+session timeline and ZIP export like any other action, not just reflected transiently on
+the bar. The **first** poll is the baseline and emits nothing (no boot/reload spam); only
+genuine transitions are logged. Under `--mock`/`--dry-run` the bar is steady-green, so
+this path stays quiet there.
+
 ## Trust model
 
 A cmd state's `cmd` runs arbitrary shell **on the base station** as the app user — the

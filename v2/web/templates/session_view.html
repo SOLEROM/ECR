@@ -63,36 +63,58 @@ function kindClass(t){
   if (t==="note") return "k-note";
   return "k-info";
 }
+const STATE_LED_COLORS = ["green","yellow","red","blue","purple","orange","gray"];
 function detail(d){
+  if (d.from || d.to){   // state_changed — a States-bar LED flipped color
+    const lbl = d.label || d.key || "state";
+    return lbl + " · " + (d.from||"?") + " → " + (d.to||"?") +
+      (d.detail ? " — " + d.detail : "");
+  }
   return d.action || d.daemon || d.step || d.text || d.sequence ||
     (d.node? "node "+d.node : "") || "";
 }
-// Custom-command completions carry a `results` array (one entry per target).
-// Surface a compact ok/total + first output line so the command's effect is
-// visible right here in the session log, not just buried in events.jsonl.
+// Custom-command completions carry a `results` array (one entry per target). Keep the
+// timeline line itself compact — just ok/total — and fold the captured output behind a
+// toggle (see outputBlock), so the effect is recorded here without overloading the view.
 function resultSummary(d){
   if (!d || !Array.isArray(d.results)) return "";
-  const res = d.results;
-  const okc = res.filter(x => x.success).length;
-  let snip = "";
+  const okc = d.results.filter(x => x.success).length;
+  return `${okc}/${d.results.length} ok`;
+}
+// A collapsible <pre> of a custom command's per-target output. Returns null when nothing
+// was captured (so plain actions get no toggle). stdout/stderr are command output →
+// build with textContent only, never innerHTML (XSS).
+function outputBlock(res){
+  let any = false;
+  const pre = document.createElement("pre");
+  pre.className = "ev-out";
   for (const r of res){
-    const s = ((r.stdout || r.stderr || "") + "").trim();
-    if (s){ snip = s.split("\n")[0].slice(0,120); break; }
+    const out = ((r.stdout||"") + "").replace(/\s+$/,"");
+    const err = ((r.stderr||"") + "").replace(/\s+$/,"");
+    if (!out && !err) continue;
+    any = true;
+    const h = span("ev-out-h",
+      (r.node||"base") + " · exit " + (r.exit_code|0) +
+      (r.duration!=null ? " · " + r.duration + "s" : ""));
+    pre.appendChild(h);
+    if (out) pre.appendChild(span("ev-out-body", out));
+    if (err) pre.appendChild(span("ev-out-body ev-out-err", err));
   }
-  return `${okc}/${res.length} ok` + (snip ? " · " + snip : "");
+  return any ? pre : null;
 }
 function span(cls, text){ const s=document.createElement("span"); s.className=cls;
   if(text!=null) s.textContent=text; return s; }
 
 function addEvent(e){
   lastSeq = Math.max(lastSeq, e.seq||0);
+  const d = e.data || {};
   const row = document.createElement("div");
   row.className = "ev " + kindClass(e.type);
   row.setAttribute("data-guipart", "88");   // event row (time/type/user/detail = guiPart89–92)
   const ts = (e.timestamp||"").slice(11,19);
-  let extra = detail(e.data||{});
-  if (e.data && e.data.node && extra && !String(extra).includes(e.data.node)) extra = e.data.node+" · "+extra;
-  const summary = resultSummary(e.data||{});
+  let extra = detail(d);
+  if (d.node && extra && !String(extra).includes(d.node)) extra = d.node+" · "+extra;
+  const summary = resultSummary(d);
   if (summary) extra = (extra ? extra + " — " : "") + summary;
   // build via textContent (never innerHTML) — note text + usernames are untrusted
   row.appendChild(span("t", ts));
@@ -102,7 +124,26 @@ function addEvent(e){
     who.style.background = e.user.color || "#58a6ff";
     row.appendChild(who);
   }
+  if (e.type === "state_changed" && d.to){   // mirror the States-bar LED with a tiny dot
+    row.appendChild(span("sdot c-" + (STATE_LED_COLORS.includes(d.to) ? d.to : "gray")));
+  }
   row.appendChild(span("d", extra));
+  // custom-command output → fold it behind a toggle so the line stays a clean "N/N ok"
+  const out = Array.isArray(d.results) ? outputBlock(d.results) : null;
+  if (out){
+    out.style.display = "none";
+    const tog = span("ev-toggle", "▸ output");
+    tog.setAttribute("role","button"); tog.tabIndex = 0;
+    const flip = () => {
+      const open = out.style.display === "none";
+      out.style.display = open ? "" : "none";
+      tog.textContent = open ? "▾ output" : "▸ output";
+    };
+    tog.onclick = flip;
+    tog.onkeydown = (ev) => { if (ev.key==="Enter"||ev.key===" "){ ev.preventDefault(); flip(); } };
+    row.appendChild(tog);
+    row.appendChild(out);
+  }
   box.appendChild(row);
 }
 

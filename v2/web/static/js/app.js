@@ -231,6 +231,9 @@
       return "k-info";
     };
     const detail = (d) => {
+      if (d.from || d.to) {                     // state_changed — a States-bar LED flipped
+        return (d.label || d.key || "state") + " · " + (d.from || "?") + " → " + (d.to || "?");
+      }
       let s = d.action || d.daemon || d.step || d.text || d.sequence ||
         (d.node ? "node " + d.node : "") || "";
       if (Array.isArray(d.results)) {           // custom-command completion

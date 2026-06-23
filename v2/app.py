@@ -340,8 +340,18 @@ def create_app(fleet_path=None, profiles_dir=None, commands_dir=None, runs_dir=N
     # base-station status LEDs: simulated (healthy) under mock/dry-run, exactly like
     # local commands echo instead of touching the network or the base station. cmd
     # states additionally stay neutral when local exec is disabled (they run shell here).
+    def _log_state_change(state, old_color):
+        # a States-bar LED flipped color → drop a compact line in the live session log
+        # (audit, P6). The first poll is the baseline and emits nothing; only genuine
+        # transitions land here. Under --mock the bar is steady-green, so this is quiet.
+        orch._emit(EventType.STATE_CHANGED, {
+            "key": state.get("key"), "label": state.get("label"),
+            "kind": state.get("kind"), "from": old_color,
+            "to": state.get("color"), "detail": state.get("detail", ""),
+        })
+
     state_monitor = StateMonitor(states, sync_manager=sync, simulate=(mock or dry_run),
-                                 allow_local=allow_local)
+                                 allow_local=allow_local, on_change=_log_state_change)
     ccflet = CCFletApp(fleet, profile_mgr, session_mgr, orch, sync, socketio, mock_state)
     ccflet.fleet_path = fleet_path
     ccflet.config = config_store
