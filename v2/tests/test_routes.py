@@ -23,7 +23,7 @@ def client(tmp_path):
         fleet_path=str(tmp_path / "fleet" / "fleet.yaml"),
         profiles_dir=str(tmp_path / "profiles"),
         commands_dir=str(tmp_path / "commands"),
-        networks_path=str(tmp_path / "networks" / "networks.yaml"),
+        states_dir=str(tmp_path / "networks"),
         runs_dir=str(tmp_path / "runs"),
         mock=True, poll=False)
     flask_app.config["TESTING"] = True
@@ -88,38 +88,40 @@ def test_fleet_command_local_echo_only(client):
     assert body["results"][0]["stdout"].startswith("[dry-run] (local)")  # mock → echo
 
 
-# ---- connectivity LEDs ------------------------------------------------------
-def test_networks_endpoint_lists_links(client):
-    body = client.get("/api/networks").get_json()
-    assert body["links"] and all(l["key"] and l["host"] for l in body["links"])
+# ---- status LEDs (the States bar) -------------------------------------------
+def test_states_endpoint_lists(client):
+    body = client.get("/api/states").get_json()
+    assert body["states"] and all(s["key"] and s["color"] and s["kind"] in ("ping", "cmd")
+                                  for s in body["states"])
     assert body["poll_interval"] > 0
 
 
-def test_networks_refresh_endpoint_ok(client):
-    assert client.post("/api/networks/refresh").get_json()["success"]
+def test_states_refresh_endpoint_ok(client):
+    assert client.post("/api/states/refresh").get_json()["success"]
 
 
-def test_networks_simulated_all_up(client):
-    # mock → the monitor simulates (all up) without pinging. Poll synchronously
-    # (the refresh endpoint runs it on a background thread) so the assert can't race.
-    client.application.ccflet.net_monitor.poll_once()
-    body = client.get("/api/networks").get_json()
-    assert body["links"] and all(l["up"] is True for l in body["links"])
+def test_states_simulated_all_green(client):
+    # mock → the monitor simulates (healthy) without pinging or running shell. Poll
+    # synchronously (refresh runs on a background thread) so the assert can't race.
+    client.application.ccflet.state_monitor.poll_once()
+    body = client.get("/api/states").get_json()
+    assert body["states"] and all(s["color"] == "green" for s in body["states"])
 
 
-def test_networks_edit_hot_reloads_links(client):
-    # edit the first link's host live (read its key from the API rather than hard-coding
-    # `link3`), so the test follows a fork that renames its links.
-    links = client.get("/api/networks").get_json()["links"]
-    key, old_host = links[0]["key"], links[0]["host"]
-    doc = client.get("/api/config/file?root=networks&path=networks.yaml").get_json()
-    new = doc["text"].replace(old_host, "10.9.9.9")
+def test_states_edit_hot_reloads(client):
+    # relabel the first ping state live (read its current label from the API rather than
+    # hard-coding a name), so the test follows a fork that renames its links.
+    states = client.get("/api/states").get_json()["states"]
+    ping = next(s for s in states if s["kind"] == "ping")
+    old_label = ping["label"]
+    doc = client.get("/api/config/file?root=states&path=networks.yaml").get_json()
+    new = doc["text"].replace(old_label, "EdgeLink")
     assert new != doc["text"]                       # the edit actually changed something
     r = client.post("/api/config/file",
-                    json={"root": "networks", "path": "networks.yaml", "text": new})
+                    json={"root": "states", "path": "networks.yaml", "text": new})
     assert r.status_code == 200 and r.get_json()["ok"] and r.get_json()["reloaded"]
-    hosts = {l["key"]: l["host"] for l in client.get("/api/networks").get_json()["links"]}
-    assert hosts[key] == "10.9.9.9"
+    labels = [s["label"] for s in client.get("/api/states").get_json()["states"]]
+    assert "EdgeLink" in labels
 
 
 # ---- config editor ----------------------------------------------------------

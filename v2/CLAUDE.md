@@ -79,7 +79,7 @@ python3 -m venv .venv && .venv/bin/pip install -r requirements.txt   # one-time
 .venv/bin/python -m pytest --cov=core       # coverage
 ```
 
-CLI flags: `--host --public --port --fleet <yaml> --profiles-dir --commands-dir --networks <yaml> --runs-dir --mock --dry-run --no-poll --no-local-commands --debug`. `--public` binds `0.0.0.0` for the LAN (no-auth posture — §8); default bind is `127.0.0.1:5000`.
+CLI flags: `--host --public --port --fleet <yaml> --profiles-dir --commands-dir --states-dir <dir> --runs-dir --mock --dry-run --no-poll --no-local-commands --debug`. `--public` binds `0.0.0.0` for the LAN (no-auth posture — §8); default bind is `127.0.0.1:5000`.
 
 **Launching the dev server from an automated shell:** use `setsid … &` and poll with
 `curl --retry`. A compound command that exits non-zero tears down the backgrounded
@@ -124,8 +124,9 @@ browser ──HTTP/WebSocket──► Flask + SocketIO (web/routes.py, core/sync
 | `transfer.py` | rsync / scp -O command synthesis + subprocess runner | mostly pure |
 | `orchestrator.py` | fan-out, **variant-aware sequences** (from `domain/sequences.yaml`), conn pool, poller, **`run_custom`** | I/O |
 | `commands.py` | **operator command catalog** schema (`commands/commands_{host,roleA,roleB}.yaml`) + `{param}` render (P8) | **pure** |
-| `networks.py` | **base-station link** schema (`networks/networks.yaml`) — the top-bar LEDs (P8) | **pure** |
-| `net_monitor.py` | **ping poller** for the off-fleet links → `net_status` broadcast (sim under mock/dry) | I/O |
+| `networks.py` | **ping-link** schema (`networks/networks.yaml`) — the *ping* kind of state (P8) | **pure** |
+| `states.py` | **States** umbrella — cmd-state schema (`stateA.yaml`, exit-code→color) + `StateRegistry` merging ping+cmd files into the bar (P8) | **pure** |
+| `state_monitor.py` | **status poller** for the States bar (ping each link · run each cmd) → `states_status` broadcast (sim under mock/dry) | I/O |
 | `config_store.py` | **Config page** backend — path-safe read/validate/write/revert of the editable roots (P8) | mostly pure |
 | `local_exec.py` | run a **local** (base-station) command as a subprocess → `CommandResult` | mostly pure |
 | `ssh_client.py` | paramiko wrapper + **jump-host** + `exec_stream()` | I/O |
@@ -189,10 +190,17 @@ a regenerate fixes both at once. **Brand tokens stay** (`ccflet`/`CCFlet`/`/tmp/
   emphasis only — no confirm, per P6). `CommandCatalog` merges all files; duplicate
   names across files are rejected. Edited from the **Config** page; parsed by
   `core/commands.py`.
-- **`networks/networks.yaml`** — the operator's list of **off-fleet** links the base
-  station watches, one **top-bar LED** each (green = reachable, red = no reply).
-  `links[{key,label,host,hint}]` + `poll_interval`/`ping_timeout`.
-  `core/net_monitor.py` ICMP-pings them and pushes `net_status`; **not** fleet nodes.
+- **The `networks/` dir (the Config-page "States" root)** — the operator's **state
+  sources**, one LED each in the **States bar** under the header. Two file kinds, merged
+  by `core/states.py::StateRegistry`:
+  - **`networks.yaml`** (*ping*) — **off-fleet** links the base station watches
+    (green = reachable, red = no reply). `links[{key,label,host,hint}]` +
+    `poll_interval`/`ping_timeout`; parsed by `core/networks.py`. **Not** fleet nodes.
+  - **`stateA.yaml`** (*cmd*) — `probes[{key,label,cmd,return_colors,default_color,
+    timeout,hint}]`: run `cmd` on the base station, map its **exit code** → a named color
+    (`green·yellow·red·blue·purple·orange·gray`). Opt-in by shipping the file.
+  `core/state_monitor.py` pings/runs them and pushes `states_status`. The dir name stays
+  `networks/` on disk; it surfaces as **States** on the Config page.
 - **GATE A–D** (`core/status.py`, variant-gated) — A reachability · B processes ·
   C check (variant B only) · D link. Thresholds are constants at the top of
   `status.py` (`LINK_FRESH_MS`, `CHECK_GOOD`, `SERVICEC_MIN_UP`, `SIGNAL_OK_RANGE`).
@@ -231,20 +239,21 @@ The operator can't touch source, so the logic they tune lives in editable config
 served read-write by the **Config** page (`/config`, the read-write twin of Help):
 
 - **Editable roots** (`core/config_store.py`): `fleet/` · `profiles/` · `commands/` ·
-  `networks/`. The store is **path-safe** (registered roots only, extension allow-list,
-  no traversal — same discipline as `core/docs.py::safe_resolve`) and reads the tree
-  fresh per request.
+  `states` (the `networks/` dir). The store is **path-safe** (registered roots only,
+  extension allow-list, no traversal — same discipline as `core/docs.py::safe_resolve`)
+  and reads the tree fresh per request.
 - **Validate → backup → write → reload → audit** on every save:
   - *validate first, never persist invalid* — fleet via `fleet.fleet_from_dict`,
     profiles via `profiles.profile_from_dict`, commands via `commands.commands_from_dict`,
-    networks via `networks.networks_from_dict`; YAML errors report a line number.
+    states via `states.state_file_from_dict` (ping **or** cmd, by shape); YAML errors
+    report a line number.
   - a timestamped copy of the prior file is written to `<root>/.bak/` (Revert restores
     the newest).
   - **hot-reload, no restart:** `CCFletApp.reload_config(scope)` → `Fleet.reload_from_dict`
     (in-place: orch/factory/mock all hold the same `Fleet` ref; current variant/algo
     preserved if still valid) · `ProfileManager.invalidate` + `Orchestrator.reload_profiles`
-    · `CommandCatalog.reload` · `Networks.reload_from_dict` (in-place; `NetMonitor` holds
-    the same ref, then re-polls) · `MockFleetState.reload` · close the conn pool so
+    · `CommandCatalog.reload` · `StateRegistry.reload` (in-place; `StateMonitor` holds
+    the same ref, then re-checks) · `MockFleetState.reload` · close the conn pool so
     changed hosts reconnect.
   - `CONFIG_SAVED` + `CONFIG_RELOADED` events → `events.jsonl` (P6).
 - **Custom commands** (`core/commands.py`, `orchestrator.run_custom`): buttons are built
@@ -324,8 +333,9 @@ just `pytest`.
 |---|---|---|
 | add/adjust a **triggerable command** | the matching `commands/commands_{host,roleA,roleB}.yaml` (+ a `commands/*.sh`) **from the Config page** — no code | reload picks it up; the button appears |
 | add an editable config root / change validation | `config_store.py` (`ROOTS`, `validate`) | `tests/test_config_store.py` |
-| add/adjust a **top-bar connectivity LED** | `networks/networks.yaml` (a `links` entry) **from the Config page** — no code | reload re-polls; the LED appears |
-| change how the LEDs are checked | `net_monitor.py` (`ping_once`) | `tests/test_networks.py` (inject a `pinger`) |
+| add/adjust a **ping LED** in the States bar | `networks/networks.yaml` (a `links` entry) **from the Config page** — no code | reload re-checks; the LED appears |
+| add/adjust a **command-driven state** (exit-code→color) | `networks/stateA.yaml` (a `probes` entry) **from the Config page** — no code | reload re-checks; the LED appears |
+| change how states are checked | `state_monitor.py` (`ping_once` / `_run_cmd`) | `tests/test_states.py` (inject a `pinger`/`runner`) |
 | change what hot-reload does | `CCFletApp.reload_config` (app.py) + the per-module `reload_*` hooks | reload test + `--mock` |
 | add/adjust a node action (e.g. a new daemon) | `profiles/{roleA,roleB}.yaml` (+ `supervisor` if a new kind) | teach `mock_ssh.py` the new command; add a test |
 | add a fleet field / derived param | `fleet.py` (`Node`, `params`) | `tests/test_fleet.py` |
@@ -351,7 +361,7 @@ you expect.
 - `FakeSSH` (in `tests/conftest.py`) records commands + returns canned results for
   supervisor tests; the **mock backend** drives orchestrator integration tests.
 - Pure-logic units carry the coverage: `fleet`, `profiles`, `status`, `supervisor`,
-  `storage`, `orchestrator`, `transfer`, `commands`, `networks`, `config_store`.
+  `storage`, `orchestrator`, `transfer`, `commands`, `networks`, `states`, `config_store`.
 - I/O shells (`ssh_client`, `sync`, `streaming`) are covered by the `--mock` boot, not
   unit tests — that's the intended tradeoff. If you make one of them non-trivial, add a
   targeted test.

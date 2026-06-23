@@ -1,17 +1,19 @@
 """
-Base-station connectivity model for ccflet (config over code).
+Base-station connectivity model for ccflet (config over code) — the **ping** kind of
+"state" (see ``core/states.py`` for the umbrella + the cmd kind).
 
 ``networks/networks.yaml`` is the operator-editable list of **off-fleet** links the
 base station should keep an eye on — e.g. the gateway it sits behind, an upstream
 reachability target, and any other device that matters before a run — surfaced as
-status LEDs in the top bar (green = reachable, red = no reply). These are **not**
-fleet nodes; they are plain reachability checks the base station runs locally (ICMP
-ping), so they live in their own small config rather than the fleet inventory.
+status LEDs in the States bar under the header (green = reachable, red = no reply).
+These are **not** fleet nodes; they are plain reachability checks the base station runs
+locally (ICMP ping), so they live in their own small config rather than the fleet
+inventory.
 
 Like ``core/commands.py``, this module is **pure**: parsing/validation are a function
 of ``(dict|file) -> model`` and unit-tested with no network
-(``tests/test_networks.py``). The actual pinging + polling lives in the I/O shell
-``core/net_monitor.py``.
+(``tests/test_networks.py``). ``core/states.py`` wraps each link as an ``Indicator``;
+the actual pinging + polling lives in the I/O shell ``core/state_monitor.py``.
 """
 
 import os

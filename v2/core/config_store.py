@@ -12,7 +12,10 @@ Roots (the editable logic):
   - ``fleet``    → ``fleet/`` (``fleet.yaml``)              → reload scope ``fleet``
   - ``profiles`` → ``profiles/`` (``roleA.yaml``/``roleB.yaml``) → reload scope ``profiles``
   - ``commands`` → ``commands/`` (``commands_{host,roleA,roleB}.yaml`` + ``*.sh``) → scope ``commands``
-  - ``networks`` → ``networks/`` (``networks.yaml``)       → reload scope ``networks``
+  - ``states``   → ``networks/`` (``networks.yaml`` ping + ``stateA.yaml`` cmd) → scope ``states``
+
+The ``states`` root holds two file *kinds* (ping links + command-driven states); they
+are validated by **shape** (``core/states.state_file_from_dict``), not by a fixed kind.
 
 Safety: every read/write is path-resolved under its root (no traversal, no dotfiles,
 extension allow-list). Writes validate first, snapshot the prior file to ``<root>/.bak/``,
@@ -35,7 +38,7 @@ BAK_DIR = ".bak"
 KIND_FLEET = "fleet"
 KIND_PROFILE = "profile"
 KIND_COMMANDS = "commands"
-KIND_NETWORKS = "networks"
+KIND_STATES = "states"      # ping links + cmd states (validated by shape)
 KIND_SCRIPT = "script"
 
 
@@ -55,7 +58,7 @@ class ConfigRoot:
         return KIND_SCRIPT if name.lower().endswith(".sh") else self.kind
 
 
-def default_roots(fleet_path, profiles_dir, commands_dir=None, networks_dir=None):
+def default_roots(fleet_path, profiles_dir, commands_dir=None, states_dir=None):
     """Build the standard root set from the app's config paths."""
     roots = [
         ConfigRoot("fleet", "Fleet inventory",
@@ -67,9 +70,9 @@ def default_roots(fleet_path, profiles_dir, commands_dir=None, networks_dir=None
     if commands_dir:
         roots.append(ConfigRoot("commands", "Commands", commands_dir,
                                  (".yaml", ".yml", ".sh"), KIND_COMMANDS, "commands"))
-    if networks_dir:
-        roots.append(ConfigRoot("networks", "Networks", networks_dir,
-                                 (".yaml", ".yml"), KIND_NETWORKS, "networks"))
+    if states_dir:
+        roots.append(ConfigRoot("states", "States", states_dir,
+                                 (".yaml", ".yml"), KIND_STATES, "states"))
     return roots
 
 
@@ -105,9 +108,9 @@ def validate_text(kind, text, name=None):
         elif kind == KIND_COMMANDS:
             from . import commands as C        # lazy: avoid an import cycle
             C.commands_from_dict(data, defaults=C.file_defaults(name or ""))
-        elif kind == KIND_NETWORKS:
-            from . import networks as N        # lazy: avoid an import cycle
-            N.networks_from_dict(data)
+        elif kind == KIND_STATES:
+            from . import states as S          # lazy: avoid an import cycle
+            S.state_file_from_dict(data, source=name or "states")  # ping or cmd, by shape
         else:
             return {"ok": False, "error": f"unknown config kind {kind!r}"}
     except ValueError as e:

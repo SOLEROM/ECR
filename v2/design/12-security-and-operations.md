@@ -91,7 +91,7 @@ python3 -m venv .venv && .venv/bin/pip install -r requirements.txt   # one-time
 ```
 
 **CLI flags:** `--host --public --port --fleet <yaml> --profiles-dir --commands-dir
---networks <yaml> --runs-dir --mock --dry-run --no-poll --no-local-commands --debug`.
+--states-dir <dir> --runs-dir --mock --dry-run --no-poll --no-local-commands --debug`.
 Default bind is `127.0.0.1:5000`; `--public` binds `0.0.0.0` (reachable across the
 LAN — see the posture note above).
 

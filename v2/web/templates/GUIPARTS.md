@@ -17,7 +17,7 @@ you like. The ids are not used by any logic — they're purely for navigation/re
 | guiPart01 | brand / logo (links home) |
 | guiPart02 | main navigation (Dashboard / Sessions / Config / Help) |
 | guiPart03 | run-mode badge (mock / dry-run / live) |
-| guiPart04 | base-station connectivity LEDs |
+| guiPart04 | States bar — status LEDs (ping links + cmd states) |
 | guiPart05 | connected-operator roster |
 | guiPart06 | operator name input |
 | guiPart07 | live connection status |

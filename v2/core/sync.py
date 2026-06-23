@@ -126,10 +126,10 @@ class SyncManager:
         """Command catalog edited (D8): clients rebuild their custom-command buttons."""
         self.socketio.emit("commands_changed", {}, room=FLEET_ROOM)
 
-    def broadcast_net_status(self, links: list):
-        """Base-station connectivity poll result → the top-bar LEDs (the configured
-        off-fleet links). ``links`` is a list of ``{key,label,host,hint,up}``."""
-        self.socketio.emit("net_status", {"links": links}, room=FLEET_ROOM)
+    def broadcast_states_status(self, states: list):
+        """Base-station status poll result → the States bar under the header. ``states``
+        is a list of ``{key,label,kind,color,detail,hint}`` (ping links + cmd states)."""
+        self.socketio.emit("states_status", {"states": states}, room=FLEET_ROOM)
 
     def broadcast_log_line(self, node: str, log: str, line: str):
         self.socketio.emit(

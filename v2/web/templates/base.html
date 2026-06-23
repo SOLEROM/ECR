@@ -47,9 +47,6 @@
       {% if mock %}<span class="badge-env mock" id="guiPart03" data-guipart="03" title="Simulated fleet — no hardware">mock</span>
       {% elif dry %}<span class="badge-env dry" id="guiPart03" data-guipart="03" title="Commands printed, not executed">dry-run</span>
       {% else %}<span class="badge-env live" id="guiPart03" data-guipart="03">live</span>{% endif %}
-      <!-- guiPart04 — base-station connectivity LEDs (the configured off-fleet links);
-           built by app.js from /api/networks and updated live over the net_status event. -->
-      <div class="netleds" id="netLeds" data-guipart="04" title="base-station links"></div>
       <!-- guiPart05 — connected-operator roster (avatars) -->
       <div class="roster" id="roster" data-guipart="05"></div>
       <!-- guiPart06 — operator name input (audited) -->
@@ -75,7 +72,22 @@
   </header>
   {% endif %}
 
-  <main class="wrap">{% block content %}{% endblock %}</main>
+  <main class="wrap">
+    {% if not embed %}
+    <!-- guiPart04 — States bar: status LEDs under the header (a full-width box, like the
+         dashboard's Select bar). Each LED is one "state": a base-station ping link
+         (networks.yaml) or a command-driven state (stateA.yaml), its color set by the
+         check's result. Built by app.js from /api/states and updated live over the
+         states_status event. Edit the sources on the Config page (the "States" root). -->
+    <div class="statesbar" id="guiPart04" data-guipart="04" title="base-station status">
+      <span class="statesbar-lbl">States</span>
+      <div class="states-leds" id="stateLeds">
+        <span class="muted states-empty">checking…</span>
+      </div>
+    </div>
+    {% endif %}
+    {% block content %}{% endblock %}
+  </main>
 
   {% if not embed %}
   <!-- guiPart09 — session dock: a reduced, global view of whichever pinned session is

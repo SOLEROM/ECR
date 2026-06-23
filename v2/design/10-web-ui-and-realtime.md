@@ -40,7 +40,7 @@ State changes are pushed, not polled. `SyncManager` manages SocketIO and the roo
 
 - **`FLEET_ROOM`** — every connected operator; receives fleet-wide events:
   `new_event`, `node_status`, `gate_changed`, `node_variant` (per-node A/B toggle),
-  `net_status` (the top-bar LEDs), `roster`.
+  `states_status` (the States bar), `roster`.
 - **`stream_room(node, log)`** — subscribers to one live log pane; receives tailed
   lines ([08](08-connectivity-and-streaming.md)).
 

@@ -179,21 +179,21 @@ def api_status():
                     "default_variant": ccflet.fleet.default_variant})
 
 
-# ============ base-station connectivity LEDs (top bar) =======================
-@web.route("/api/networks")
-def api_networks():
-    """Current LED state (the configured off-fleet links) for the initial render;
-    live updates then arrive over SocketIO (``net_status``)."""
-    if not ccflet.net_monitor:
-        return jsonify({"links": [], "poll_interval": 0})
-    return jsonify({"links": ccflet.net_monitor.snapshot(),
-                    "poll_interval": ccflet.networks.poll_interval})
+# ============ status LEDs (the States bar under the header) ==================
+@web.route("/api/states")
+def api_states():
+    """Current state-LED colors (ping links + cmd states) for the initial render;
+    live updates then arrive over SocketIO (``states_status``)."""
+    if not ccflet.state_monitor:
+        return jsonify({"states": [], "poll_interval": 0})
+    return jsonify({"states": ccflet.state_monitor.snapshot(),
+                    "poll_interval": ccflet.states.poll_interval})
 
 
-@web.route("/api/networks/refresh", methods=["POST"])
-def api_networks_refresh():
-    if ccflet.net_monitor:
-        ccflet.run_bg(ccflet.net_monitor.poll_once)
+@web.route("/api/states/refresh", methods=["POST"])
+def api_states_refresh():
+    if ccflet.state_monitor:
+        ccflet.run_bg(ccflet.state_monitor.poll_once)
     return jsonify({"success": True})
 
 

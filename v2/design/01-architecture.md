@@ -59,7 +59,8 @@ SocketIO to every connected operator.
 | `local_exec.py` | run a **local** (base-station) command as a subprocess → `CommandResult` | mostly pure |
 | `result.py` | shared `CommandResult` (paramiko-free, so pure modules can import it) | **pure** |
 | `orchestrator.py` | fan-out, **variant-aware sequences**, conn pool, poller, **`run_custom`** (the engine) | I/O |
-| `net_monitor.py` | **ping poller** for the off-fleet links → `net_status` broadcast | I/O |
+| `states.py` | **States** umbrella: cmd-state schema + `StateRegistry` (ping+cmd files → the bar) | **pure** |
+| `state_monitor.py` | **status poller** for the States bar (ping links · run cmd states) → `states_status` | I/O |
 | `ssh_client.py` | paramiko wrapper + **jump-host** + `exec_stream()` | I/O |
 | `streaming.py` | live `tail -F` → SocketIO rooms → xterm | I/O |
 | `mock_ssh.py` | **stateful simulated fleet** (for `--mock` and tests) | sim |

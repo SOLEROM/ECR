@@ -22,8 +22,13 @@ BAD_YAML = "fleet:\n  a: b: c\n"
 MIN_PROFILE = "name: roleA\nconnection: {host: h}\nactions: {}\n"
 BAD_PROFILE = "actions:\n  x: {kind: bogus}\n"
 GOOD_COMMANDS = "commands:\n  ping: {label: P, on: remote, role: roleA, run: 'echo hi'}\n"
-GOOD_NETWORKS = "networks:\n  links:\n    - {key: link1, label: Gateway, host: 10.0.0.1}\n"
-BAD_NETWORKS = "networks:\n  links:\n    - {key: 'bad key', host: h}\n"
+# the States root validates two shapes (ping links + cmd states) by content:
+GOOD_STATES_PING = "networks:\n  links:\n    - {key: link1, label: Gateway, host: 10.0.0.1}\n"
+BAD_STATES_PING = "networks:\n  links:\n    - {key: 'bad key', host: h}\n"
+GOOD_STATES_CMD = ("states:\n  probes:\n"
+                   "    - {key: disk, cmd: 'true', return_colors: {0: green, 1: red}}\n")
+BAD_STATES_CMD = ("states:\n  probes:\n"
+                  "    - {key: disk, cmd: 'true', return_colors: {0: chartreuse}}\n")
 
 
 def make_store(tmp_path, dry_run=False):
@@ -63,13 +68,22 @@ def test_validate_good_commands():
     assert validate_text("commands", GOOD_COMMANDS)["ok"] is True
 
 
-def test_validate_good_networks():
-    assert validate_text("networks", GOOD_NETWORKS)["ok"] is True
+def test_validate_good_states_ping():
+    assert validate_text("states", GOOD_STATES_PING)["ok"] is True
 
 
-def test_validate_bad_networks():
-    res = validate_text("networks", BAD_NETWORKS)
+def test_validate_bad_states_ping():
+    res = validate_text("states", BAD_STATES_PING)
     assert res["ok"] is False and "key" in res["error"]
+
+
+def test_validate_good_states_cmd():
+    assert validate_text("states", GOOD_STATES_CMD)["ok"] is True
+
+
+def test_validate_bad_states_cmd():
+    res = validate_text("states", BAD_STATES_CMD)
+    assert res["ok"] is False and "color" in res["error"]
 
 
 def test_validate_script_empty():

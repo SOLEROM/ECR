@@ -29,7 +29,7 @@ from core import (
     Fleet, load_fleet, ProfileManager, SessionManager, SessionManifest,
     EventStream, EventType, Orchestrator, StreamManager, init_sync, now_iso,
     render_connection, CommandCatalog, ConfigStore, default_roots,
-    load_networks, NetMonitor,
+    StateRegistry, StateMonitor,
 )
 from core.mock_ssh import MockFleetState, MockSSHClient
 
@@ -63,10 +63,10 @@ class CCFletApp:
         self.config = None      # ConfigStore (Config page backend)
         self.commands = None    # CommandCatalog (operator command catalog)
         self.allow_local = True
-        # base-station connectivity LEDs (top bar): set by create_app
-        self.networks_path = None
-        self.networks = None        # Networks (off-fleet link list → top-bar LEDs)
-        self.net_monitor = None     # NetMonitor (ping poller → net_status broadcast)
+        # base-station status LEDs (the States bar): set by create_app
+        self.states_dir = None
+        self.states = None          # StateRegistry (ping links + cmd states → the bar)
+        self.state_monitor = None   # StateMonitor (poller → states_status broadcast)
 
     # ---- sessions --------------------------------------------------------
     def start_session(self, name=None, user=None):
@@ -224,7 +224,7 @@ class CCFletApp:
     def reload_config(self, scope, user=None):
         """Hot-reload one config scope in place — no restart (D8).
 
-        scope ∈ {fleet, profiles, commands, networks}. Returns a short human summary. Every
+        scope ∈ {fleet, profiles, commands, states}. Returns a short human summary. Every
         holder (orchestrator, client factory, mock state) shares the same `Fleet`
         object, so the fleet is reloaded in place; the connection pool is closed so
         changed hosts reconnect lazily.
@@ -255,15 +255,13 @@ class CCFletApp:
             if self.sync:
                 self.sync.broadcast_commands_changed()
             summary = "commands"
-        elif scope == "networks":
-            # Reload the link list in place (the monitor holds the same ref), then
-            # kick an immediate connectivity check so the LEDs reflect the edit at once.
-            with open(self.networks_path, "r", encoding="utf-8") as f:
-                raw = yaml.safe_load(f) or {}
-            self.networks.reload_from_dict(raw, source=self.networks_path)
-            if self.net_monitor:
-                self.run_bg(self.net_monitor.poll_once)
-            summary = f"networks · {len(self.networks.links)} links"
+        elif scope == "states":
+            # Reload the indicator list in place from the states dir (the monitor holds
+            # the same ref), then kick an immediate check so the LEDs reflect the edit.
+            self.states.reload()
+            if self.state_monitor:
+                self.run_bg(self.state_monitor.poll_once)
+            summary = f"states · {len(self.states.indicators)} indicators"
         else:
             return None
         self.orch._emit(EventType.CONFIG_RELOADED,
@@ -291,13 +289,15 @@ def _real_factory(fleet, profile_mgr):
 
 
 def create_app(fleet_path=None, profiles_dir=None, commands_dir=None, runs_dir=None,
-               networks_path=None, mock=False, dry_run=False, poll=True, allow_local=True):
+               states_dir=None, mock=False, dry_run=False, poll=True, allow_local=True):
     here = os.path.dirname(os.path.abspath(__file__))
     fleet_path = fleet_path or os.path.join(here, "fleet", "fleet.yaml")
     profiles_dir = profiles_dir or os.path.join(here, "profiles")
     commands_dir = commands_dir or os.path.join(here, "commands")
     runs_dir = runs_dir or os.path.join(here, "runs")
-    networks_path = networks_path or os.path.join(here, "networks", "networks.yaml")
+    # the States config root: the dir holding the state-source files (ping + cmd). Kept
+    # as networks/ on disk; surfaced as "States" on the Config page.
+    states_dir = states_dir or os.path.join(here, "networks")
 
     fleet = load_fleet(fleet_path)
     profile_mgr = ProfileManager(profiles_dir)
@@ -305,10 +305,10 @@ def create_app(fleet_path=None, profiles_dir=None, commands_dir=None, runs_dir=N
         raise SystemExit(f"missing roleA profile in {profiles_dir}")
     session_mgr = SessionManager(runs_dir)
     commands = CommandCatalog(commands_dir)   # loads commands_{host,roleA,roleB}.yaml
-    networks = load_networks(networks_path)
+    states = StateRegistry(states_dir)        # loads networks.yaml (ping) + stateA.yaml (cmd)
     config_store = ConfigStore(
-        default_roots(fleet_path, profiles_dir, commands_dir,
-                      os.path.dirname(os.path.abspath(networks_path))), dry_run=dry_run)
+        default_roots(fleet_path, profiles_dir, commands_dir, states_dir),
+        dry_run=dry_run)
 
     app = Flask(__name__,
                 template_folder=resource(os.path.join("web", "templates")),
@@ -337,17 +337,19 @@ def create_app(fleet_path=None, profiles_dir=None, commands_dir=None, runs_dir=N
     orch = Orchestrator(fleet, profile_mgr, factory, sync_manager=sync, dry_run=dry_run)
     orch.configure_commands(commands, commands_dir, allow_local=allow_local,
                             runs_dir=runs_dir, mock=mock)
-    # base-station connectivity LEDs: simulated (all-up) under mock/dry-run, exactly
-    # like local commands echo instead of touching the base station.
-    net_monitor = NetMonitor(networks, sync_manager=sync, simulate=(mock or dry_run))
+    # base-station status LEDs: simulated (healthy) under mock/dry-run, exactly like
+    # local commands echo instead of touching the network or the base station. cmd
+    # states additionally stay neutral when local exec is disabled (they run shell here).
+    state_monitor = StateMonitor(states, sync_manager=sync, simulate=(mock or dry_run),
+                                 allow_local=allow_local)
     ccflet = CCFletApp(fleet, profile_mgr, session_mgr, orch, sync, socketio, mock_state)
     ccflet.fleet_path = fleet_path
     ccflet.config = config_store
     ccflet.commands = commands
     ccflet.allow_local = allow_local
-    ccflet.networks_path = networks_path
-    ccflet.networks = networks
-    ccflet.net_monitor = net_monitor
+    ccflet.states_dir = states_dir
+    ccflet.states = states
+    ccflet.state_monitor = state_monitor
     ccflet.start_session("boot")
     ccflet.stream_mgr = StreamManager(socketio, orch, sync,
                                   session_getter=lambda: ccflet.current_storage)
@@ -360,7 +362,7 @@ def create_app(fleet_path=None, profiles_dir=None, commands_dir=None, runs_dir=N
 
     if poll:
         orch.start_polling()
-        net_monitor.start()
+        state_monitor.start()
     return app, socketio, ccflet
 
 
@@ -391,7 +393,7 @@ def main():
     p.add_argument("--fleet", help="fleet inventory YAML")
     p.add_argument("--profiles-dir", help="role profiles dir")
     p.add_argument("--commands-dir", help="operator command catalog dir")
-    p.add_argument("--networks", help="base-station connectivity (top-bar LED) YAML")
+    p.add_argument("--states-dir", help="status-LED state sources dir (the States bar)")
     p.add_argument("--runs-dir", help="ops-session storage dir")
     p.add_argument("--mock", action="store_true",
                    help="use the simulated fleet backend (no hardware)")
@@ -406,7 +408,7 @@ def main():
     app, socketio, ccflet = create_app(
         fleet_path=args.fleet, profiles_dir=args.profiles_dir,
         commands_dir=args.commands_dir, runs_dir=args.runs_dir,
-        networks_path=args.networks,
+        states_dir=args.states_dir,
         mock=args.mock, dry_run=args.dry_run, poll=not args.no_poll,
         allow_local=not args.no_local_commands)
 
@@ -432,8 +434,8 @@ def main():
                      allow_unsafe_werkzeug=True)
     except KeyboardInterrupt:
         ccflet.orch.stop_polling()
-        if ccflet.net_monitor:
-            ccflet.net_monitor.stop()
+        if ccflet.state_monitor:
+            ccflet.state_monitor.stop()
         ccflet.stream_mgr.stop_all()
         ccflet.orch.pool.close_all()
         sys.exit(0)

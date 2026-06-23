@@ -85,8 +85,8 @@ template. See `CLAUDE.md §4`.
 ```
 app.py              composition root + CCFletApp facade + CLI
 core/               generic engine: pure logic (fleet, profiles, supervisor, status,
-                    sequences, transfer, commands, networks) + I/O shells (ssh_client,
-                    orchestrator, streaming, sync, events, storage, net_monitor, mock_ssh)
+                    sequences, transfer, commands, networks, states) + I/O shells (ssh_client,
+                    orchestrator, streaming, sync, events, storage, state_monitor, mock_ssh)
 domain/             per-app spec-derived logic (gates, mock_rules, sequences, identity)
 web/                routes.py + templates/ + static/ (css, vendored xterm/socket.io)
 fleet/ profiles/ commands/ networks/   the operator-editable config (the Config page)

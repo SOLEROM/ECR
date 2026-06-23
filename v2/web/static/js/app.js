@@ -128,30 +128,39 @@
     });
   }
 
-  // ---- base-station connectivity LEDs (top bar) ----
-  // One LED per configured link: green = reachable, red = no reply, gray = checking.
-  // Labels/hosts are operator-authored config → rendered with textContent (XSS).
-  function renderNetLeds(links) {
-    const box = document.getElementById("netLeds");
+  // ---- States bar (status LEDs under the header) ----
+  // One LED per configured state: a base-station ping link (green = reachable, red =
+  // no reply) or a command-driven state (color set by the command's exit code via its
+  // return_colors map). gray = not checked yet. All labels/details/hints are
+  // operator-authored config → rendered with textContent (XSS).
+  const STATE_COLORS = ["green", "yellow", "red", "blue", "purple", "orange", "gray"];
+  function renderStateLeds(states) {
+    const box = document.getElementById("stateLeds");
     if (!box) return;
     box.innerHTML = "";
-    (links || []).forEach((l) => {
-      const state = l.up === true ? "on" : l.up === false ? "off" : "unknown";
+    if (!states || !states.length) {
+      const e = document.createElement("span");
+      e.className = "muted states-empty";
+      e.textContent = "no states configured";
+      box.appendChild(e);
+      return;
+    }
+    states.forEach((s) => {
+      const color = STATE_COLORS.includes(s.color) ? s.color : "gray";
       const led = document.createElement("span");
-      led.className = "led " + state;
+      led.className = "led c-" + color + (s.kind ? " k-" + s.kind : "");
       const dot = document.createElement("span");
       dot.className = "led-dot";
       const lbl = document.createElement("span");
       lbl.className = "led-label";
-      lbl.textContent = l.label;
+      lbl.textContent = s.label;
       led.append(dot, lbl);
-      const status = l.up === true ? "connected" : l.up === false ? "no reply" : "checking…";
-      led.title = l.label + " (" + l.host + ") — " + status +
-        (l.hint ? " · " + l.hint : "");
+      led.title = s.label + (s.detail ? " — " + s.detail : "") +
+        (s.hint ? " · " + s.hint : "");
       box.appendChild(led);
     });
   }
-  CCFlet.renderNetLeds = renderNetLeds;
+  CCFlet.renderStateLeds = renderStateLeds;
 
   // ---- pinned sessions (shared by the Sessions page + the bottom bar) ----
   // The set of session ids the operator pinned to the bottom bar, persisted in
@@ -424,7 +433,7 @@
       CCFlet.user.color = d.color;
     });
     s.on("roster", (d) => renderRoster(d.users));
-    s.on("net_status", (d) => renderNetLeds(d.links));
+    s.on("states_status", (d) => renderStateLeds(d.states));
     s.on("action_progress", (d) => {
       if (d.state === "failed") CCFlet.toast(`${d.node}/${d.action} failed`, "err");
     });
@@ -432,8 +441,8 @@
     Object.entries(CCFlet.handlers).forEach(([ev, fns]) => fns.forEach((fn) => s.on(ev, fn)));
   }
 
-  // seed the connectivity LEDs (until a net_status push arrives)
-  CCFlet.api("/api/networks").then((d) => { if (d && d.links) renderNetLeds(d.links); });
+  // seed the States bar (until a states_status push arrives)
+  CCFlet.api("/api/states").then((d) => { if (d && d.states) renderStateLeds(d.states); });
 
   document.addEventListener("DOMContentLoaded", () => {
     // nav active state

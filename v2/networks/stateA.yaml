@@ -1,0 +1,38 @@
+# networks/stateA.yaml — command-driven status LEDs (one of the "States").
+#
+# This is the second kind of state source (networks.yaml is the first — ping links).
+# Each probe runs a COMMAND ON THE BASE STATION; its EXIT CODE selects the LED color
+# via `return_colors` (a {exit-code: color} map), falling back to `default_color`.
+# Same States bar under the header, a different way to derive each light.
+#
+#   Colors:  green · yellow · red · blue · purple · orange · gray
+#
+# Edit freely from the Config page — saves are validated (key a bare token, colors from
+# the list above), backed up, hot-reloaded and audited, exactly like the other config.
+# The `cmd` is operator-authored config and runs as the app user: that is the deliberate
+# config-over-code trust model (closed LAN, audited) — echo-only under --mock/--dry-run
+# (LEDs show the exit-0 color), and disabled with --no-local-commands (LEDs go gray).
+states:
+  poll_interval: 10       # seconds between checks (heavier than a ping)
+  timeout: 5              # per-command timeout (seconds)
+  probes:
+    # 1) root filesystem under 90% used → green, otherwise red
+    - key: disk
+      label: Disk
+      cmd: "[ \"$(df --output=pcent / | tr -dc '0-9')\" -lt 90 ]"
+      return_colors:
+        0: green          # under 90% used
+        1: red            # 90%+ used
+      default_color: yellow   # any other exit code (e.g. df unavailable)
+      hint: root filesystem under 90% used
+
+    # 2) 1-minute load average: under 4 → green, under 8 → yellow, else red
+    - key: load
+      label: Load
+      cmd: "L=$(cut -d' ' -f1 /proc/loadavg | cut -d. -f1); [ \"$L\" -lt 4 ] && exit 0; [ \"$L\" -lt 8 ] && exit 1; exit 2"
+      return_colors:
+        0: green
+        1: yellow
+        2: red
+      default_color: gray
+      hint: 1-minute load average

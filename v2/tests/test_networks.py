@@ -1,5 +1,8 @@
-"""Base-station connectivity (top-bar LEDs): model parsing/validation + the
-ping monitor (with an injected pinger, so no real network is touched)."""
+"""Base-station ping links (the ping kind of "state"): model parsing/validation.
+
+This is the kept ping model (``core/networks.py``), now one of two state-source kinds.
+The runtime poller + the cmd kind + the registry live in ``tests/test_states.py``.
+"""
 
 import os
 import pytest
@@ -7,7 +10,6 @@ import pytest
 from core.networks import (
     networks_from_dict, load_networks, Networks, NetLink,
 )
-from core.net_monitor import NetMonitor
 
 GOOD = {"networks": {"poll_interval": 2, "ping_timeout": 1, "links": [
     {"key": "link1", "label": "Gateway", "host": "10.0.0.1"},
@@ -80,60 +82,3 @@ def test_load_shipped_file():
     n = load_networks(os.path.join(here, "networks", "networks.yaml"))
     assert n.links and all(l.key and l.host for l in n.links)
     assert n.poll_interval > 0 and n.ping_timeout > 0
-
-
-# ---- monitor (injected pinger — no real network) ---------------------------
-def test_monitor_pings_and_reports():
-    n = networks_from_dict(GOOD)
-    seen = []
-
-    def fake(host, timeout):
-        seen.append(host)
-        return host == "10.0.0.2"
-
-    mon = NetMonitor(n, sync_manager=None, simulate=False, pinger=fake)
-    states = mon.poll_once()
-    assert states["link2"]["up"] is True
-    assert states["link1"]["up"] is False
-    assert set(seen) == {"10.0.0.1", "10.0.0.2"}
-
-
-def test_monitor_simulate_never_pings():
-    n = networks_from_dict(GOOD)
-
-    def boom(host, timeout):
-        raise AssertionError("must not ping when simulating (mock/dry-run)")
-
-    mon = NetMonitor(n, simulate=True, pinger=boom)
-    states = mon.poll_once()
-    assert all(s["up"] is True for s in states.values())
-
-
-def test_monitor_snapshot_unknown_before_poll():
-    mon = NetMonitor(networks_from_dict(GOOD), simulate=True)
-    snap = mon.snapshot()
-    assert [s["key"] for s in snap] == ["link1", "link2"]
-    assert all(s["up"] is None for s in snap)          # neutral/gray until first check
-
-
-def test_monitor_broadcasts_in_order():
-    class FakeSync:
-        def __init__(self):
-            self.calls = []
-
-        def broadcast_net_status(self, links):
-            self.calls.append(links)
-
-    fs = FakeSync()
-    mon = NetMonitor(networks_from_dict(GOOD), sync_manager=fs, simulate=True)
-    mon.poll_once()
-    assert fs.calls and [l["key"] for l in fs.calls[0]] == ["link1", "link2"]
-
-
-def test_monitor_pinger_crash_is_down_not_fatal():
-    def crash(host, timeout):
-        raise RuntimeError("ping blew up")
-
-    mon = NetMonitor(networks_from_dict(GOOD), simulate=False, pinger=crash)
-    states = mon.poll_once()
-    assert all(s["up"] is False for s in states.values())
