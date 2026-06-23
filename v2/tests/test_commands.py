@@ -53,17 +53,21 @@ def test_meta_carries_no_command_body():
 
 
 def test_catalog_loads_split_shipped_files():
-    """The shipped catalog is split by target; the dir loads + merges all three."""
+    """The shipped catalog is split by target; the dir loads + merges all files and the
+    file each command lives in decides where it runs. Asserted structurally (by on/role,
+    not by button name) so a fork that renames its buttons still exercises the mechanism."""
     here = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
     cat = CommandCatalog(os.path.join(here, "commands"))
-    names = [c.name for c in cat.all()]
-    assert "df_data" in names and "archive_runs" in names and "roleB_uptime" in names
-    # the file a command lives in decides where it runs — no `on:`/`role:` needed
-    assert cat.get("df_data").on == "remote" and cat.get("df_data").role == "roleA"
-    assert cat.get("roleB_uptime").on == "remote" and cat.get("roleB_uptime").role == "roleB"
-    assert cat.get("archive_runs").on == "local"
-    arch = cat.get("archive_runs")
-    assert cat.script_path(arch) and cat.script_path(arch).endswith("archive_runs.sh")
+    cmds = cat.all()
+    assert cmds, "shipped catalog should not be empty"
+    roleA = [c for c in cmds if c.on == "remote" and c.role == "roleA"]
+    roleB = [c for c in cmds if c.on == "remote" and c.role == "roleB"]
+    local = [c for c in cmds if c.on == "local"]
+    assert roleA and roleB and local            # all three shipped files loaded + merged
+    # any scripted command resolves to an existing *.sh under commands/
+    for c in (c for c in cmds if getattr(c, "script", None)):
+        p = cat.script_path(c)
+        assert p and p.endswith(".sh") and os.path.exists(p)
 
 
 def test_catalog_missing_dir_is_empty(tmp_path):

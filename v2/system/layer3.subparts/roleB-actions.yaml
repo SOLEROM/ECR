@@ -1,0 +1,8 @@
+# layer3.subparts/roleB-actions.yaml — REMOTE 🛰 roleB command buttons (via jump-host).
+# A `live` sub-part: the build writes commands/commands_roleB.yaml. roleB is only
+# reachable in variant B; a roleB command run in variant A fails to connect (and is audited).
+extends: commands.roleB
+default_timeout: 60
+add:
+  - { id: roleB_uptime, label: "roleB uptime", group: Diagnostics, scope: fleet, run: "uptime", mode: live }
+  - { id: servicec_log, label: "serviceC log tail", group: Diagnostics, scope: node, run: "tail -n 40 /tmp/serviceC.log", mode: live }

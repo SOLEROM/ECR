@@ -1,0 +1,6 @@
+# layer3.subparts/gate-a.yaml — GATE A — reach + the variant-B probe markers (FROZEN — string contract) (mode default: frozen)
+extends: gate.A
+label: reach
+contract:
+  PROBE_A_READY: 'PROBEA: READY'
+  PROBE_B_OK: PROBEB_OK

@@ -89,11 +89,16 @@ extends: networks
 links:
   - { key: link1, label: Gateway, host: 10.0.0.1, hint: "the gateway" }
 
-# layer3.subparts/gate-c.yaml          (→ domain/gates.py thresholds, FROZEN)
+# layer3.subparts/gate-c.yaml          (→ domain/gates.py, FROZEN)
 extends: gate.C
-thresholds: { CHECK_GOOD: 3, CHECK_FRESH_S: 1.0 }
+thresholds: { CHECK_GOOD: 3, CHECK_FRESH_S: 1.0 }   # numeric constants (patched)
+contract:  { CHECK_TAG: "[HUM]", CHECK2_TAG: "[HUM2]" }  # the log-tag vocabulary (patched)
 parse: "regex \\[HUM\\]\\s+(\\d+)%"   # free-form logic → flagged TODO for review/codegen
 good:  "20 <= value <= 80"
+
+# layer3.subparts/roleA-profile.yaml   (→ profiles/roleA.yaml, the per-role action catalog)
+extends: profiles.roleA
+actions: { serviceA_start: { kind: daemon, name: serviceA, command: "… ID={ID} …" } }
 ```
 
 See `catalog.md` for every overridable part and `scaffold <part>` to dump its default.
@@ -131,11 +136,16 @@ Command buttons default `live`; gate rules + sequences default `frozen`.
 | `app.*` names | `domain/identity.py` (+ fenced `<!-- GEN:identity -->` regions) | live (labels) |
 | `app.nodes_seed`/`defaults`/`variant_params`/`groups` | `fleet/fleet.yaml` | live |
 | `*-actions` sub-parts | `commands/commands_{host,roleA,roleB}.yaml` | live |
+| `*-profile` sub-parts | `profiles/{roleA,roleB}.yaml` (validated through the engine loader) | live |
 | `networks` sub-part | `networks/networks.yaml` | live |
 | `sequences` sub-part | `domain/sequences.yaml` | frozen |
-| `gate-*` sub-part `thresholds:` | `domain/gates.py` (patched) | frozen |
+| `gate-*` sub-part `thresholds:` + `contract:` | `domain/gates.py` (numbers + string-contract vocabulary patched) | frozen |
 | `app.*` names (+ optional `docs` sub-part) | `design/` Help tree — generated `00-about.md` + app-name relabel | live (labels) |
 
+The `contract:` strings (log tags + probe markers) are the **shared** half of the
+`mock ↔ status` string contract: `domain/mock_rules.py` imports them from
+`domain/gates.py`, so patching the constant re-emits **both** the parser and the mock
+producer at once — a fork speaks its own vocabulary without the two halves drifting.
 Free-form gate `parse:`/`good:` logic is **flagged as a TODO** in the compile report,
 never silently guessed. `compile.sh check` warns if a human hand-edited any owned file.
 

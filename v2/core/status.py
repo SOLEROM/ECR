@@ -112,7 +112,7 @@ _FORWARDED = {
     "parse_links", "parse_check", "parse_servicec_stats", "parse_probe_a",
     "parse_probe_b", "compute_gates",
     "LINK_FRESH_MS", "CHECK_FRESH_S", "CHECK_GOOD", "SERVICEC_MIN_UP",
-    "SIGNAL_OK_RANGE", "CHECK_TAG", "CHECK2_TAG",
+    "SIGNAL_OK_RANGE", "CHECK_TAG", "CHECK2_TAG", "PROBE_A_READY", "PROBE_B_OK",
 }
 
 

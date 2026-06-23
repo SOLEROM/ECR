@@ -1,0 +1,12 @@
+# layer3.subparts/gate-c.yaml — GATE C — the per-variant-B sensor/value check (FROZEN — code) (mode default: frozen)
+extends: gate.C
+label: check
+applies_to_variant: B
+thresholds:
+  CHECK_GOOD: 3
+  CHECK_FRESH_S: 1.0
+contract:
+  CHECK_TAG: '[CHECK]'
+  CHECK2_TAG: '[CHECK2]'
+# (no `parse:`/`good:` — the demo's GATE C logic is the template default; a fork that
+#  needs different parsing adds those here and they're flagged as TODO for LLM codegen.)

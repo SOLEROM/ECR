@@ -34,9 +34,30 @@ CHECK_GOOD = 3                # the "good" check value (e.g. a full reading)
 SERVICEC_MIN_UP = 15          # serviceC frames/s floor, allow slack
 SIGNAL_OK_RANGE = (-95, -40)  # serviceC signal sane window
 
-# string-contract log tags (must match what domain.mock_rules emits)
-CHECK_TAG = "[CHECK]"
-CHECK2_TAG = "[CHECK2]"
+# --- string-contract vocabulary (the shared half of the mock ↔ status contract) ---
+# These markers are what the parsers below look for AND what domain.mock_rules emits.
+# mock_rules imports them from here, so there is ONE source: the Compiler patches these
+# constants (the gate-* sub-parts' `contract:` block) and both halves move together —
+# a fork can speak its own vocabulary without the two sides drifting (CLAUDE.md §7).
+CHECK_TAG = "[CHECK]"           # serviceB.log line carrying the path-1 check value
+CHECK2_TAG = "[CHECK2]"         # the path-2 check value (variant B)
+PROBE_A_READY = "PROBEA: READY" # probe A "ready" marker (GATE A, variant B)
+PROBE_B_OK = "PROBEB_OK"        # probe B "ok" marker (GATE A, variant B)
+CHECK_VALUE_KEY = "value"       # token before the numeric value on a CHECK line (e.g. fix_type)
+SIGNAL_KEY = "signal"           # token before the serviceC signal value (e.g. rssi)
+
+# Mock command-routing markers — domain.mock_rules matches these substrings of the
+# synthesized collector/probe/build commands to decide which simulated output to return.
+# They must be substrings of the matching profile commands, so a fork whose profiles tail
+# different log files / hit different probe endpoints still routes correctly under --mock.
+# mock_rules imports them from here (one source), so the Compiler patches them in one place
+# and the producer follows — the third face of the same mock↔status contract (CLAUDE.md §7).
+LINKS_CMD_MARK = "links.json"     # links/peers collector command marker
+CHECK_LOG_MARK = "serviceB.log"   # check (GATE C) collector command marker
+SERVICEC_LOG_MARK = "serviceC.log"  # serviceC stats (GATE D) collector command marker
+PROBE_A_CMD_MARK = "probeA"       # probe A (GATE A) command marker
+PROBE_B_CMD_MARK = "probeB"       # probe B (GATE A) command marker
+BUILD_CMD_MARK = "serviceA"       # serviceA_build (compile) command marker
 
 
 # --- parsers -----------------------------------------------------------------
@@ -89,7 +110,7 @@ def parse_check(text: str, tag: str = CHECK_TAG) -> Dict[str, Any]:
             last = line
     if last is None:
         return {"present": False, "value": None, "age": None, "raw": ""}
-    val = re.search(r"value\s*[=:]\s*(\d+)", last)
+    val = re.search(rf"{re.escape(CHECK_VALUE_KEY)}\s*[=:]\s*(\d+)", last)
     age = re.search(r"age\s*[=:]\s*([\d.]+)", last)
     return {
         "present": True,
@@ -120,20 +141,19 @@ def parse_servicec_stats(text: str) -> Dict[str, Any]:
         "loop": grab(r"loop=(\d+)"),
         "self": grab(r"self=(\d+)"),
         "err_tx": grab(r"\btx=(\d+)"),
-        "signal": grab(r"signal=(-?\d+)"),
+        "signal": grab(rf"{re.escape(SIGNAL_KEY)}=(-?\d+)"),
         "raw": last.strip(),
     }
 
 
 def parse_probe_a(text: str) -> bool:
-    """True when probe A reports READY."""
-    t = (text or "")
-    return bool(re.search(r"PROBEA\s*[:=]?\s*READY", t)) or "PROBEA: READY" in t
+    """True when probe A reports its ready marker (:data:`PROBE_A_READY`)."""
+    return PROBE_A_READY in (text or "")
 
 
 def parse_probe_b(text: str) -> bool:
-    """True when probe B reports OK/synced."""
-    return "PROBEB_OK" in (text or "")
+    """True when probe B reports its ok marker (:data:`PROBE_B_OK`)."""
+    return PROBE_B_OK in (text or "")
 
 
 # --- the GATE map ------------------------------------------------------------

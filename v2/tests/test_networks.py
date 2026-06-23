@@ -74,12 +74,12 @@ def test_load_missing_file_is_empty(tmp_path):
 
 
 def test_load_shipped_file():
+    # structural, not name-pinned: the shipped file parses to ≥1 valid link (key + host),
+    # so a fork that renames its links keeps this green.
     here = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
     n = load_networks(os.path.join(here, "networks", "networks.yaml"))
-    keys = [l.key for l in n.links]
-    assert "link1" in keys and "link2" in keys and "link3" in keys
-    link2 = next(l for l in n.links if l.key == "link2")
-    assert link2.host == "10.0.0.2"
+    assert n.links and all(l.key and l.host for l in n.links)
+    assert n.poll_interval > 0 and n.ping_timeout > 0
 
 
 # ---- monitor (injected pinger — no real network) ---------------------------

@@ -115,11 +115,15 @@ A red gate ⇒ `pipeline.run` returns non-zero and the build is reported **NOT V
 (it ships nothing trustworthy). The gate runs from the *template's* `compiler/` against
 the *fork's* files, so fixing gate logic here applies to all builds immediately.
 
-> **Known sharp edge:** the gate runs the *app's* `tests/`, some of which assert the
-> **example** config (`test_commands` wants `df_data`/`archive_runs`; `test_networks`
-> wants `link1/2/3`). The demo reproduces those, so it's green. A fork whose spec changes
-> those config roots must also regenerate or relax those example-pinned tests — the
-> Compiler does **not** yet emit per-app tests (backlog; see §8).
+> **Spec-resilient tests (was a sharp edge):** the gate runs the *app's* `tests/`. Those
+> that read regenerated config/contract now read **live values** rather than demo literals
+> — `test_status_parsers` reads the vocabulary from `domain.gates`; `test_commands`/
+> `test_networks` assert structurally (by `on`/`role`, ≥1 link); `test_routes` discovers
+> nodes/commands/links from the API. So a fork that rewrites fleet/commands/networks or
+> renames its `[CHECK]`/`PROBEA` vocabulary keeps `pytest` green without per-app test
+> edits. The literals that remain are engine-level structural identifiers (the
+> `serviceA_start` ordering, self-contained unit fixtures) that stay across forks by
+> design. (Per-app *parse/good gate logic* is still the one LLM-codegen gap — §10.)
 
 ---
 
@@ -140,7 +144,9 @@ report, never guessed — systemPlan §6).
 | You want to… | Touch | Then |
 |---|---|---|
 | add an overridable sub-part | `catalog.py` (`PARTS`) + an `emit_*` in `build.py` + a row in `system/catalog.md` | `tests/test_compiler.py` |
-| change what `build` emits for an existing part | `build.py` (`emit_identity`/`emit_fleet`/`emit_commands`/…) | unit test + a real fork build |
+| change what `build` emits for an existing part | `build.py` (`emit_identity`/`emit_fleet`/`emit_commands`/`emit_profiles`/…) | unit test + a real fork build |
+| change a **per-role profile** emit (daemons/collectors/log paths/`{param}`) | the `roleA-profile`/`roleB-profile` catalog defaults + `build.py::emit_profiles` (validates via `core.profiles`) | `tests/test_compiler.py::test_emit_profiles_*` + fork build |
+| rename the gate↔mock **string vocabulary** (tags/probe markers) | the `gate-*` sub-part `contract:` block → `build.py::patch_gate_thresholds` patches the named constants in `domain/gates.py` (mock_rules imports them, so both halves move) | `tests/test_compiler.py::test_patch_gate_contract_*` + `--mock` |
 | add a config root to the emit | `build.py` (a new `emit_*`, record it in the manifest) | fork build + `check` |
 | change how the **Help tree** is regenerated | `build.py` (`emit_docs` / `_about_markdown`) + the `docs` part in `catalog.py` | `tests/test_compiler.py::test_emit_docs_*`; refresh on demand with `compile.sh … docs` |
 | change a gate check at build time | a `gate-*` sub-part `thresholds:` → `build.patch_gate_thresholds` (numeric only); free-form logic is a TODO for LLM codegen into `domain/gates.py` | the gate |
@@ -166,7 +172,10 @@ apps/tmp --from subparts --to app` and confirm the gate stays green → `rm -rf 
   effect on the next run without re-forking; only the fork's `domain/`/config/tests are
   what's verified.
 - **Forks live in `apps/`** (git-ignored). `fork.py` excludes `.venv`/`.git`/`runs`/
-  `apps`/caches; a fork drops any inherited manifest so it owns its own outputs.
+  `apps`/caches; a fork drops any inherited manifest **and resets every `build.yaml`
+  stage to `draft`** (the demo's `approved` blessings are the demo's, not the new app's —
+  otherwise the approved-lock would halt the fork's first `--from dream --to app`) so it
+  owns its own outputs.
 - **Don't break the offline path.** Every LLM call must degrade to a valid offline draft,
   or builds become un-runnable in CI / without a key.
 - **Keep `catalog.py` and `system/catalog.md` in sync** (the machine + human views of the
@@ -176,12 +185,20 @@ apps/tmp --from subparts --to app` and confirm the gate stays green → `rm -rf 
 
 ## 10. Backlog (Rebuild system)
 
-- **Per-app test emission** — the gate runs example-pinned tests; generate/relax them per
-  spec so a fork that changes config roots stays green (§6).
-- **Richer deterministic build** — profiles/groups round-trip; more of config-root
-  generation as a pure transform (systemPlan §12).
-- **LLM gate codegen** — turn free-form `parse:`/`good:` prose into verified
-  `domain/gates.py`, with the gate as the acceptance oracle and a bounded repair loop.
+- ✅ **Per-app test resilience** *(done)* — the example-pinned tests now read live values
+  (vocabulary from `domain.gates`, commands/links asserted structurally, nodes/commands
+  discovered via the API), so a fork that rewrites config roots / renames its vocabulary
+  stays green without per-app test edits (§6).
+- ✅ **Profiles round-trip** *(done)* — `emit_profiles` regenerates `profiles/{roleA,roleB}.yaml`
+  from `*-profile` sub-parts (validated through the engine loader). Groups already
+  round-trip via `emit_fleet`.
+- **LLM gate codegen** — the remaining gap. The string-contract *vocabulary* (tags + probe
+  markers) is now codegened deterministically from the `gate-*` `contract:` block; what is
+  **not** is free-form `parse:`/`good:` *logic* (e.g. a brand-new collector format or
+  health rule). Turn that prose into verified `domain/gates.py` parser/rule bodies, with
+  the gate as the acceptance oracle and a bounded repair loop. Until then it is flagged as
+  a TODO in the compile report (never guessed), and a fork with genuinely new parsing edits
+  `domain/gates.py` (+ the `mock_rules` producer) by hand.
 - **Richer per-app Help docs** — `emit_docs` today generates the `00-about.md` front
   page + glossary and relabels the display name; the engine reference docs stay shared
   (structural keys are literal there). Authoring/removing whole per-app doc *pages* from

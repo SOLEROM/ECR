@@ -1,0 +1,9 @@
+# layer3.subparts/roleA-actions.yaml — REMOTE 🛰 roleA command buttons.
+# A `live` sub-part: the build writes commands/commands_roleA.yaml. The file decides
+# these are remote/roleA, so items need no on:/role:. {param} = the node's derived params.
+extends: commands.roleA
+default_timeout: 60
+add:
+  - { id: df_data, label: "Disk /data", group: Diagnostics, scope: node, run: "df -h {DEPLOY_ROOT}", mode: live }
+  - { id: uptime, label: "Uptime", group: Diagnostics, scope: fleet, run: "uptime", mode: live }
+  - { id: reboot_roleA, label: "Reboot roleA", group: Maintenance, scope: node, run: "sudo reboot", danger: true, timeout: 20, mode: live }

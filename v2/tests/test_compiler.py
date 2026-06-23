@@ -9,7 +9,7 @@ import os
 import yaml
 
 from compiler import build as B
-from compiler import catalog, spec, stages
+from compiler import catalog, fork, spec, stages
 from compiler.manifest import Manifest
 from compiler.pipeline import _select
 
@@ -78,6 +78,58 @@ def test_emit_commands_from_action_subpart(tmp_path):
     assert doc["commands"]["disk"]["run"] == "df -h"
 
 
+def test_emit_profiles_from_subpart(tmp_path):
+    sub = {"roleA-profile": {
+        "extends": "profiles.roleA",
+        "connection": {"user": "{roleA_user}", "host": "{HOST_A}"},
+        "actions": {
+            "serviceA_start": {"kind": "daemon", "name": "serviceA",
+                               "command": "run {ID}"},
+            "deploy_serviceA": {"kind": "transfer", "method": "rsync",
+                                "src": "./a/", "dst": "{DEPLOY_ROOT}/a/"},
+        },
+        "collectors": {"links": {"command": "cat links", "parser": "link"}},
+        "logs": {"rx": "/tmp/x"}}}
+    man = Manifest(app_dir=str(tmp_path))
+    report = []
+    B.emit_profiles(str(tmp_path), sub, man, report)
+    doc = yaml.safe_load((tmp_path / "profiles" / "roleA.yaml").read_text())
+    assert doc["name"] == "roleA"
+    assert "extends" not in doc                          # the patch key is stripped
+    # loads cleanly through the engine's own profile validator
+    from core.profiles import profile_from_dict
+    prof = profile_from_dict(doc, name="roleA")
+    assert prof.action("serviceA_start").kind == "daemon"
+    assert prof.action("deploy_serviceA").method == "rsync"
+    assert "profiles/roleA.yaml" in man.owned
+
+
+def test_emit_profiles_skipped_keeps_template_default(tmp_path):
+    # no *-profile sub-part → nothing written (template profile is kept, R2)
+    man = Manifest(app_dir=str(tmp_path))
+    B.emit_profiles(str(tmp_path), {}, man, [])
+    assert not (tmp_path / "profiles").exists()
+    assert man.owned == {}
+
+
+def test_emit_profiles_invalid_aborts(tmp_path):
+    import pytest
+    sub = {"roleB-profile": {"actions": {"bad": {"kind": "bogus"}}}}
+    with pytest.raises(ValueError, match="roleB-profile: invalid profile"):
+        B.emit_profiles(str(tmp_path), sub, Manifest(app_dir=str(tmp_path)), [])
+
+
+def test_catalog_profile_defaults_are_valid_profiles():
+    """The shipped roleA/roleB profile defaults parse through the engine validator."""
+    from core.profiles import profile_from_dict
+    for stem, role in (("roleA-profile", "roleA"), ("roleB-profile", "roleB")):
+        _desc, body, mode = catalog.part_default(stem)
+        assert mode == "live"
+        prof = profile_from_dict({k: v for k, v in body.items() if k != "extends"},
+                                 name=role)
+        assert prof.name == role and prof.actions
+
+
 def test_emit_networks(tmp_path):
     sub = {"networks": {"poll_interval": 7, "links": [
         {"key": "link1", "label": "GW", "host": "10.0.0.1"}]}}
@@ -96,6 +148,48 @@ def test_patch_gate_thresholds(tmp_path):
     B.patch_gate_thresholds(str(tmp_path), sub, Manifest(app_dir=str(tmp_path)), report)
     src = (gates_dir / "gates.py").read_text()
     assert "CHECK_GOOD = 7" in src and "SERVICEC_MIN_UP = 15" in src
+
+
+def test_patch_gate_contract_strings(tmp_path):
+    """A gate-* `contract:` block patches the string-contract constants (with comments
+    preserved), so a fork can rename [CHECK]/PROBEA to its own vocabulary."""
+    gates_dir = tmp_path / "domain"
+    gates_dir.mkdir()
+    (gates_dir / "gates.py").write_text(
+        'CHECK_TAG = "[CHECK]"           # path-1 tag\n'
+        'CHECK2_TAG = "[CHECK2]"         # path-2 tag\n'
+        'PROBE_A_READY = "PROBEA: READY" # probe a\n'
+        'CHECK_GOOD = 3                  # good value\n')
+    sub = {"gate-a": {"contract": {"PROBE_A_READY": "PROBEA: CALIBRATED"}},
+           "gate-c": {"contract": {"CHECK_TAG": "[HUM]", "CHECK2_TAG": "[HUM2]"},
+                      "thresholds": {"CHECK_GOOD": 7}}}
+    report = []
+    B.patch_gate_thresholds(str(tmp_path), sub, Manifest(app_dir=str(tmp_path)), report)
+    src = (gates_dir / "gates.py").read_text()
+    # the generated module must still be valid Python with the new vocabulary
+    ns = {}
+    exec(src, ns)
+    assert ns["CHECK_TAG"] == "[HUM]" and ns["CHECK2_TAG"] == "[HUM2]"
+    assert ns["PROBE_A_READY"] == "PROBEA: CALIBRATED"
+    assert ns["CHECK_GOOD"] == 7
+    assert "# path-1 tag" in src                       # inline comments preserved
+    assert any("contract" in line for line in report)
+
+
+def test_patch_gate_contract_noop_without_block(tmp_path):
+    gates_dir = tmp_path / "domain"
+    gates_dir.mkdir()
+    (gates_dir / "gates.py").write_text('CHECK_TAG = "[CHECK]"\n')
+    B.patch_gate_thresholds(str(tmp_path), {"gate-c": {}},
+                            Manifest(app_dir=str(tmp_path)), [])
+    assert (gates_dir / "gates.py").read_text() == 'CHECK_TAG = "[CHECK]"\n'
+
+
+def test_catalog_gate_contract_defaults():
+    _d, body_a, _m = catalog.part_default("gate-a")
+    assert body_a["contract"]["PROBE_A_READY"] == "PROBEA: READY"
+    _d, body_c, _m = catalog.part_default("gate-c")
+    assert body_c["contract"]["CHECK_TAG"] == "[CHECK]"
 
 
 def test_build_writes_manifest_and_report(tmp_path):
@@ -197,6 +291,21 @@ def test_build_book_roundtrip(tmp_path):
     again = spec.load_build(str(sysdir))
     assert again.app == "demo"
     assert again.status_of("params") == spec.STATUS_APPROVED
+
+
+def test_fork_resets_approved_status_to_draft(tmp_path):
+    # a "template" whose demo build.yaml has blessed (approved) params/subparts
+    tpl = tmp_path / "tpl"
+    (tpl / "system").mkdir(parents=True)
+    book = spec.load_build(str(tpl / "system"))
+    book.set_status("params", spec.STATUS_APPROVED)
+    book.set_status("subparts", spec.STATUS_APPROVED)
+    spec.save_build(book)
+    # forking must un-bless every stage so the new app's first build runs
+    dest = tpl.parent / "apps" / "myapp"
+    fork.fork(str(tpl), str(dest))
+    forked = spec.load_build(str(dest / "system"))
+    assert all(st.status == spec.STATUS_DRAFT for st in forked.stages.values())
 
 
 # --- catalog + scaffold ------------------------------------------------------

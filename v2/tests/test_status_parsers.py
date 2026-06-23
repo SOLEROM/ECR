@@ -1,6 +1,14 @@
-"""Status parsers + GATE A-D logic — golden fixtures."""
+"""Status parsers + GATE A-D logic — golden fixtures.
+
+Spec-resilient: the domain *vocabulary* (the log tags + probe markers + the "good"
+value) is read from :mod:`domain.gates` rather than hard-coded, so these tests follow a
+fork that renames `[CHECK]`/`PROBEA: READY` to its own words (item 3 of the template's
+`todo`). Only the structural shapes (peer ids, stat keys, gate-state transitions) are
+asserted literally — those don't change per app.
+"""
 
 from core import status as S
+from domain import gates as G
 
 
 # --- links -------------------------------------------------------------------
@@ -40,22 +48,23 @@ def test_parse_links_empty():
 
 # --- check -------------------------------------------------------------------
 def test_parse_check_present():
-    g = S.parse_check("noise\n[CHECK] value=3 age=0.2 unit=ok\n", "[CHECK]")
-    assert g["present"] and g["value"] == 3 and g["age"] == 0.2
+    txt = f"noise\n{G.CHECK_TAG} {G.CHECK_VALUE_KEY}={G.CHECK_GOOD} age=0.2 unit=ok\n"
+    g = S.parse_check(txt, G.CHECK_TAG)
+    assert g["present"] and g["value"] == G.CHECK_GOOD and g["age"] == 0.2
 
 
 def test_parse_check_second_tag():
-    g = S.parse_check("[CHECK2] value=3 age=0.4", "[CHECK2]")
-    assert g["present"] and g["value"] == 3
+    g = S.parse_check(f"{G.CHECK2_TAG} {G.CHECK_VALUE_KEY}={G.CHECK_GOOD} age=0.4", G.CHECK2_TAG)
+    assert g["present"] and g["value"] == G.CHECK_GOOD
 
 
 def test_parse_check_absent():
-    assert S.parse_check("nothing here", "[CHECK]")["present"] is False
+    assert S.parse_check("nothing here", G.CHECK_TAG)["present"] is False
 
 
 # --- serviceC stats ----------------------------------------------------------
-SERVICEC = ("+12s up=20 (20/s) down=40 (40/s) drop: bad_lan=0 loop=40 bad_air=0 "
-            "self=0 err: tx=0 lan=0 signal=-72dB")
+SERVICEC = (f"+12s up=20 (20/s) down=40 (40/s) drop: bad_lan=0 loop=40 bad_air=0 "
+            f"self=0 err: tx=0 lan=0 {G.SIGNAL_KEY}=-72dB")
 
 
 def test_parse_servicec_stats():
@@ -71,13 +80,13 @@ def test_parse_servicec_absent():
 
 # --- probes ------------------------------------------------------------------
 def test_parse_probe_a():
-    assert S.parse_probe_a("PROBEA: INIT\nPROBEA: READY") is True
-    assert S.parse_probe_a("PROBEA: INIT") is False
+    assert S.parse_probe_a(f"some preamble\n  {G.PROBE_A_READY}\n") is True
+    assert S.parse_probe_a("some preamble\n  (not the marker)\n") is False
 
 
 def test_parse_probe_b():
-    assert S.parse_probe_b("...PROBEB_OK...") is True
-    assert S.parse_probe_b("PROBEB_PENDING") is False
+    assert S.parse_probe_b(f"...{G.PROBE_B_OK}...") is True
+    assert S.parse_probe_b("(not the marker)") is False
 
 
 # --- gates: variant A --------------------------------------------------------
@@ -130,10 +139,11 @@ def test_gates_variant_a_partial_links_warns():
 def _raw_b(**over):
     raw = {
         "reachable_roleA": True, "reachable_roleB": True,
-        "probe_a_text": "PROBEA: READY", "probe_b_text": "PROBEB_OK",
+        "probe_a_text": G.PROBE_A_READY, "probe_b_text": G.PROBE_B_OK,
         "serviceA": {"up": True}, "serviceB": {"up": True}, "serviceC": {"up": True},
         "links_text": LINKS_JSON,
-        "check1_text": "[CHECK] value=3 age=0.2\n[CHECK2] value=3 age=0.3",
+        "check1_text": (f"{G.CHECK_TAG} {G.CHECK_VALUE_KEY}={G.CHECK_GOOD} age=0.2\n"
+                        f"{G.CHECK2_TAG} {G.CHECK_VALUE_KEY}={G.CHECK_GOOD} age=0.3"),
         "servicec_text": SERVICEC,
     }
     raw.update(over)
@@ -149,7 +159,7 @@ def test_gates_variant_b_all_green():
 
 
 def test_gates_variant_b_probe_a_not_ready():
-    ns = S.build_status("d1", "B", _raw_b(probe_a_text="PROBEA: INIT"),
+    ns = S.build_status("d1", "B", _raw_b(probe_a_text="(probe A not ready)"),
                         expected_links=2, own_id=1)
     assert ns.gates["A"]["state"] == S.FAIL
 

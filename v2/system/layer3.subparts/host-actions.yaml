@@ -1,0 +1,8 @@
+# layer3.subparts/host-actions.yaml — LOCAL 🖥 base-station command buttons.
+# A `live` sub-part: the build writes commands/commands_host.yaml, editable on the
+# Config page. The file decides where these run (local), so items need no on:/role:.
+extends: commands.host
+default_timeout: 60
+add:
+  - { id: base_disk, label: "Base-station disk", group: Housekeeping, run: "df -h .", mode: live }
+  - { id: archive_runs, label: "Archive old runs", group: Housekeeping, script: "archive_runs.sh", timeout: 120, mode: live }

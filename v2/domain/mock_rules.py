@@ -22,8 +22,13 @@ import re
 import time
 
 # the parser side's expectations — referenced here so producer and consumer of the
-# contract literally share the "good" value and the log tags.
-from .gates import CHECK_GOOD, CHECK_TAG, CHECK2_TAG
+# contract literally share the "good" value, the log tags and the probe markers. There is
+# ONE source for these strings (domain.gates); the Compiler patches them there and this
+# producer follows automatically, so the two halves of the contract can't drift.
+from .gates import (CHECK_GOOD, CHECK_TAG, CHECK2_TAG, PROBE_A_READY, PROBE_B_OK,
+                    CHECK_VALUE_KEY, SIGNAL_KEY,
+                    LINKS_CMD_MARK, CHECK_LOG_MARK, SERVICEC_LOG_MARK,
+                    PROBE_A_CMD_MARK, PROBE_B_CMD_MARK, BUILD_CMD_MARK)
 
 # daemon name (as embedded in /tmp/ccflet/<name>.{pid,log} and systemd units) →
 # internal state key. The names line up, so this is effectively an identity map.
@@ -107,9 +112,9 @@ def check_lines(state, node: str) -> str:
         return ""
     now = time.time()
     age = round(0.05 + (int(now * 3) % 30) / 100, 2)
-    lines = [f"{CHECK_TAG} value={CHECK_GOOD} age={age} unit=ok"]
+    lines = [f"{CHECK_TAG} {CHECK_VALUE_KEY}={CHECK_GOOD} age={age} unit=ok"]
     if state.node_variant(node) == "B" and state.is_up(node, "serviceC"):
-        lines.append(f"{CHECK2_TAG} value={CHECK_GOOD} age={age} unit=ok")
+        lines.append(f"{CHECK2_TAG} {CHECK_VALUE_KEY}={CHECK_GOOD} age={age} unit=ok")
     return "\n".join(lines)
 
 
@@ -123,22 +128,22 @@ def servicec_stats(state, node: str) -> str:
     signal = -68 - (hash(node) % 20)
     return (f"+{now}s up={up} ({up}/s) down={down} ({down}/s) "
             f"drop: bad_lan=0 loop={down} bad_air=0 self=0 "
-            f"err: tx=0 lan=0 signal={signal}dB")
+            f"err: tx=0 lan=0 {SIGNAL_KEY}={signal}dB")
 
 
 def probe_a_text(state, node: str) -> str:
-    return ("status/probeA:\n  PROBEA: READY"
+    return (f"status/probeA:\n  {PROBE_A_READY}"
             if state.is_reachable(node) else "connection refused")
 
 
 def probe_b_text(state, node: str) -> str:
-    return ("status/probeB:\n  value: 3\n  PROBEB_OK"
+    return (f"status/probeB:\n  value: {CHECK_GOOD}\n  {PROBE_B_OK}"
             if state.is_reachable(node) else "connection refused")
 
 
 # --- command routing (which read a synthesized command maps to) -------------
 def is_build_command(command: str) -> bool:
-    return "make" in command and "serviceA" in command
+    return "make" in command and BUILD_CMD_MARK in command
 
 
 def do_build(state, node: str) -> str:
@@ -149,28 +154,30 @@ def do_build(state, node: str) -> str:
 def domain_read(state, node: str, command: str):
     """Return the simulated stdout for a build/probe/collector command, or None if
     this command is not a recognised domain read (the caller then falls through to
-    the generic supervisor matches / echo)."""
+    the generic supervisor matches / echo). Commands are matched by the spec-driven
+    routing markers in :mod:`domain.gates`, so a fork's renamed log files / probe
+    endpoints route correctly here without editing this file."""
     if is_build_command(command):
         return do_build(state, node)
-    if "probeA" in command:
+    if PROBE_A_CMD_MARK in command:
         return probe_a_text(state, node)
-    if "probeB" in command:
+    if PROBE_B_CMD_MARK in command:
         return probe_b_text(state, node)
-    if "links.json" in command or ("serviceA.rx" in command and "tail" in command):
+    if LINKS_CMD_MARK in command or ("serviceA.rx" in command and "tail" in command):
         return (links_json(state, node) if state.systemd_serviceA
                 else links_log_tail(state, node))
-    if "serviceB.log" in command and "tail" in command:
+    if CHECK_LOG_MARK in command and "tail" in command:
         return check_lines(state, node)
-    if "serviceC.log" in command and "tail" in command:
+    if SERVICEC_LOG_MARK in command and "tail" in command:
         return servicec_stats(state, node)
     return None
 
 
 def stream_kind(command: str) -> str:
     """The collector kind a live `tail -F` command streams."""
-    if "serviceC.log" in command:
+    if SERVICEC_LOG_MARK in command:
         return "servicec"
-    if "serviceB.log" in command:
+    if CHECK_LOG_MARK in command:
         return "check"
     return "links"
 

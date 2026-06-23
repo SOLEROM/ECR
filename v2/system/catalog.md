@@ -17,9 +17,12 @@ table). The `extends:` id is what you put at the top of the Layer-3 file.
 | `host-actions`  | `commands.host` | live   | `commands/commands_host.yaml`  | LOCAL 🖥 base-station command buttons |
 | `roleA-actions` | `commands.roleA`| live   | `commands/commands_roleA.yaml` | REMOTE 🛰 roleA command buttons |
 | `roleB-actions` | `commands.roleB`| live   | `commands/commands_roleB.yaml` | REMOTE 🛰 roleB command buttons |
+| `roleA-profile` | `profiles.roleA`| live   | `profiles/roleA.yaml`          | roleA action/collector/log catalog (the daemons, deploys, probes, `{param}` commands) |
+| `roleB-profile` | `profiles.roleB`| live   | `profiles/roleB.yaml`          | roleB action/collector/log catalog (reached via the roleA jump-host) |
 | `networks`      | `networks`      | live   | `networks/networks.yaml`       | top-bar connectivity LEDs (off-fleet links) |
 | `sequences`     | `sequences`     | frozen | `domain/sequences.yaml`        | deploy / bring-up / tear-down order + invariants |
-| `gate-c`        | `gate.C`        | frozen | `domain/gates.py` (thresholds) | GATE C — the variant-B sensor/value check |
+| `gate-a`        | `gate.A`        | frozen | `domain/gates.py` (contract)   | GATE A — reach/probe markers (the `contract:` probe strings) |
+| `gate-c`        | `gate.C`        | frozen | `domain/gates.py` (thresholds + contract) | GATE C — the variant-B sensor/value check (log tags + thresholds) |
 | `gate-d`        | `gate.D`        | frozen | `domain/gates.py` (thresholds) | GATE D — link / peer liveness |
 | `docs`          | `docs`          | live   | `design/` tree (Help page)     | the app's generated front page + glossary, app-name relabeling |
 
@@ -63,6 +66,33 @@ remove: [old_button]             # drop a default item by id
 `{param}` placeholders in `run:` are the node's derived params (`{ID} {HOST_A} {HOST_B}
 {SUBNET} {VAR_ADDR} {ALGO} {VARIANT} {DEPLOY_ROOT}` …) — kept bare-token-safe.
 
+## Profile sub-part shape (per-role action catalog)
+
+A `*-profile` sub-part carries the full role profile — the parameterized command
+catalog one role runs. `scaffold roleA-profile` dumps the demo's roleA profile as a
+ready-to-edit starting point. The body is the same schema `core/profiles.py` loads, and
+the build validates it through that loader before writing (a bad `kind:` aborts the
+build, never ships a broken profile). Skip the part → the forked template's profile is
+kept (R2).
+
+```yaml
+extends: profiles.roleA          # roleA = directly reachable; roleB = via the roleA jump-host
+name: roleA
+connection: { user: "{roleA_user}", host: "{HOST_A}", port: 22, key_file: "{key_file}" }
+actions:
+  serviceA_start:                # kind ∈ transfer | exec | daemon | daemon_stop | daemon_status
+    kind: daemon
+    name: serviceA               # daemon name → pidfile/log key + (optional) prefer_systemd
+    command: "cd {DEPLOY_ROOT}/serviceA && ID={ID} ADDR={VAR_ADDR} ./{VAR_LAUNCHER} tcp"
+collectors:
+  links: { command: "cat /run/serviceA/links.json", interval: 1, parser: link }
+logs: { rx: /tmp/serviceA.rx }
+```
+
+`{param}` placeholders are the node's derived params (`{ID} {HOST_A} {HOST_B} {SUBNET}
+{VAR_ADDR} {VAR_LAUNCHER} {VAR_FLAG} {ALGO} {DEPLOY_ROOT}` …), rendered per node/variant
+by `core/fleet.py`. roleB's `connection.via` reaches it through roleA.
+
 ## Gate sub-part shape
 
 ```yaml
@@ -72,10 +102,18 @@ applies_to_variant: B            # (informational) which variant the check appli
 thresholds:                      # numeric constants patched into domain/gates.py
   CHECK_GOOD: 3
   CHECK_FRESH_S: 1.0
+contract:                        # string-contract vocabulary — patched into domain/gates.py
+  CHECK_TAG: "[CHECK]"           # …and domain/mock_rules.py imports it, so both move together
+  CHECK2_TAG: "[CHECK2]"
 parse: "..."                     # free-form parsing logic → flagged TODO (LLM codegen)
 good:  "..."                     # free-form "is it healthy" logic → flagged TODO
 mode: frozen
 ```
 
-Only `thresholds:` are patched deterministically. Non-numeric `parse:`/`good:` logic is
-recorded in the compile report as a TODO for review (never silently guessed, §6).
+`thresholds:` (numbers) and `contract:` (the log tags + probe markers — `CHECK_TAG`,
+`CHECK2_TAG`, `PROBE_A_READY`, `PROBE_B_OK`) are patched **deterministically** as named
+constants in `domain/gates.py`. Because `domain/mock_rules.py` imports the `contract:`
+constants, one patch re-emits both halves of the `mock ↔ status` contract — they can't
+drift. Probe markers live on `gate-a`; check tags on `gate-c`. Non-numeric, non-string
+`parse:`/`good:` *logic* is recorded in the compile report as a TODO for review (never
+silently guessed, §6).

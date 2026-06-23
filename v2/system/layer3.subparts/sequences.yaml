@@ -1,0 +1,61 @@
+# layer3.subparts/sequences.yaml — variant-aware bring-up / tear-down / deploy order (FROZEN — code) (mode default: frozen)
+extends: sequences
+deploy:
+  steps:
+  - role: roleA
+    action: deploy_serviceB
+  - role: roleA
+    action: deploy_serviceA
+  build_steps:
+  - role: roleA
+    action: serviceA_build
+bring_up:
+  variants:
+    A:
+    - role: roleA
+      start: serviceA_start
+      status: serviceA_status
+    - role: roleA
+      start: serviceB_start
+      status: serviceB_status
+    B:
+    - role: roleB
+      start: serviceC_start
+      status: serviceC_status
+    - role: roleA
+      start: serviceA_start
+      status: serviceA_status
+    - role: roleA
+      start: serviceB_start
+      status: serviceB_status
+tear_down:
+  variants:
+    A:
+    - role: roleA
+      action: serviceB_stop
+    - role: roleA
+      action: serviceA_stop
+    B:
+    - role: roleA
+      action: serviceB_stop
+    - role: roleA
+      action: serviceA_stop
+    - role: roleB
+      action: serviceC_stop
+invariants:
+  bring_up:
+    A:
+    - serviceA_start
+    - serviceB_start
+    B:
+    - serviceC_start
+    - serviceA_start
+    - serviceB_start
+  tear_down:
+    A:
+    - serviceB_stop
+    - serviceA_stop
+    B:
+    - serviceB_stop
+    - serviceA_stop
+    - serviceC_stop

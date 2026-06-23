@@ -7,9 +7,12 @@ app's owned files:
   - ``domain/identity.py``   — operator-facing labels (brand tokens stay)
   - ``fleet/fleet.yaml``     — inventory seed (real hosts are LIVE, edited in-app)
   - ``commands/commands_{host,roleA,roleB}.yaml`` — the `live` command buttons
+  - ``profiles/{roleA,roleB}.yaml`` — per-role action/collector/log catalogs (when a
+    ``*-profile`` sub-part is given)
   - ``networks/networks.yaml``  — top-bar LEDs (when a `networks` sub-part is given)
   - ``domain/sequences.yaml``   — bring-up/tear-down order (when a `sequence` sub-part is given)
-  - ``domain/gates.py``         — gate thresholds patched (when a `gate-*` sub-part overrides them)
+  - ``domain/gates.py``         — gate thresholds + string-contract vocabulary patched
+    (when a `gate-*` sub-part overrides them)
 
 "Skip a sub-part → template default" (R2): anything not described is left as the
 forked template's file. Every emitted path is recorded in the manifest, and the build
@@ -205,6 +208,41 @@ def emit_commands(app_dir: str, subparts: Dict[str, Any], manifest: Manifest,
         report.append(f"commands[{stem}]: {len(cmds)} button(s)")
 
 
+# --- per-role profiles (action / collector / log catalogs) ------------------
+# layer3 profile sub-part stem -> (role, emitted profile file)
+_PROFILE_FILES = {
+    "roleA-profile": ("roleA", "profiles/roleA.yaml"),
+    "roleB-profile": ("roleB", "profiles/roleB.yaml"),
+}
+
+
+def emit_profiles(app_dir: str, subparts: Dict[str, Any], manifest: Manifest,
+                  report: List[str]):
+    """Write ``profiles/{roleA,roleB}.yaml`` from the matching ``*-profile`` sub-parts.
+
+    Skip a sub-part → the forked template's profile is kept (R2). The body is validated
+    through the engine's own :func:`core.profiles.profile_from_dict` before it is
+    persisted — an invalid profile aborts the build loudly (validate-first; never ship a
+    broken file) rather than silently leaving the template default in place.
+    """
+    from core.profiles import profile_from_dict
+    for stem, (role, relpath) in _PROFILE_FILES.items():
+        sp = subparts.get(stem)
+        if sp is None:
+            continue
+        body = {k: v for k, v in sp.items() if k != "extends"}
+        body.setdefault("name", role)
+        try:
+            profile_from_dict(body, name=role)
+        except ValueError as e:
+            raise ValueError(f"{stem}: invalid profile — {e}") from e
+        header = (f"# profiles/{role}.yaml — {role} action/collector/log catalog "
+                  "(GENERATED; mode: live, editable on the Config page).\n")
+        _write(app_dir, relpath, header + _yaml_block(body), manifest)
+        report.append(f"profiles[{role}]: {len(body.get('actions') or {})} action(s), "
+                      f"{len(body.get('collectors') or {})} collector(s)")
+
+
 # --- networks (top-bar LEDs) -------------------------------------------------
 def emit_networks(app_dir: str, subparts: Dict[str, Any], manifest: Manifest,
                   report: List[str]):
@@ -237,36 +275,73 @@ def emit_sequences(app_dir: str, subparts: Dict[str, Any], manifest: Manifest,
     report.append("sequences: regenerated from spec")
 
 
-# --- gate threshold overrides (frozen) ---------------------------------------
+# --- gate thresholds + string-contract overrides (frozen) --------------------
+# Numeric thresholds (patched as repr ints/floats) and the string-contract vocabulary
+# (patched as repr strings). Both are named module-level constants in domain/gates.py;
+# domain/mock_rules.py *imports* the contract strings, so patching gates.py re-emits BOTH
+# halves of the mock↔status contract at once (CLAUDE.md §7) — they can't drift.
 _THRESHOLDS = ("LINK_FRESH_MS", "CHECK_FRESH_S", "CHECK_GOOD", "SERVICEC_MIN_UP")
+_CONTRACT = ("CHECK_TAG", "CHECK2_TAG", "PROBE_A_READY", "PROBE_B_OK",
+             "CHECK_VALUE_KEY", "SIGNAL_KEY",
+             "LINKS_CMD_MARK", "CHECK_LOG_MARK", "SERVICEC_LOG_MARK",
+             "PROBE_A_CMD_MARK", "PROBE_B_CMD_MARK", "BUILD_CMD_MARK")
+
+
+def _patch_const(src: str, name: str, literal: str) -> str:
+    """Replace the value of a module-level ``name = <value>`` line, preserving any inline
+    comment (so the generated module stays clean + valid). First match only."""
+    pat = rf"(?m)^({re.escape(name)}\s*=\s*)[^\n#]*(#.*)?$"
+
+    def repl(m: "re.Match") -> str:
+        comment = m.group(2) or ""
+        sep = "  " if comment else ""
+        return f"{m.group(1)}{literal}{sep}{comment}"
+
+    return re.sub(pat, repl, src, count=1)
 
 
 def patch_gate_thresholds(app_dir: str, subparts: Dict[str, Any], manifest: Manifest,
                           report: List[str]):
-    """If any ``gate-*`` sub-part declares ``thresholds:``, patch the numbers in
-    ``domain/gates.py`` deterministically (a regex on the constant lines). Free-form
-    gate *logic* (``parse:``/``good:`` prose) is flagged as a TODO, never guessed."""
-    overrides: Dict[str, Any] = {}
+    """Patch the numeric ``thresholds:`` and the string ``contract:`` vocabulary declared
+    by any ``gate-*`` sub-part into ``domain/gates.py`` (a regex on the constant lines).
+
+    The ``contract:`` strings (log tags + probe markers) are the *shared* half of the
+    ``mock ↔ status`` string contract: ``domain/mock_rules.py`` imports them from
+    ``domain/gates.py``, so patching the constant here re-emits the producer side too and
+    the two halves stay in lock-step. Free-form ``parse:``/``good:`` logic is still
+    flagged as a TODO, never guessed (systemPlan §6)."""
+    nums: Dict[str, Any] = {}
+    strs: Dict[str, str] = {}
     for stem, sp in subparts.items():
         if not stem.startswith("gate"):
             continue
         for k, v in (sp.get("thresholds") or {}).items():
             if k in _THRESHOLDS:
-                overrides[k] = v
+                nums[k] = v
+        for k, v in (sp.get("contract") or {}).items():
+            if k in _CONTRACT:
+                strs[k] = str(v)
         if sp.get("parse") or sp.get("good"):
             report.append(f"TODO: {stem} declares custom parse/good logic — review "
                           "domain/gates.py (LLM codegen needed for non-threshold changes)")
-    if not overrides:
+    if not nums and not strs:
         return
     path = os.path.join(app_dir, "domain", "gates.py")
     with open(path, "r", encoding="utf-8") as fh:
         src = fh.read()
-    for k, v in overrides.items():
-        src = re.sub(rf"(?m)^{k}\s*=\s*[^\n#]+", f"{k} = {v!r}", src)
+    for k, v in nums.items():
+        src = _patch_const(src, k, repr(v))
+    for k, v in strs.items():
+        src = _patch_const(src, k, repr(v))
     with open(path, "w", encoding="utf-8") as fh:
         fh.write(src)
     manifest.record("domain/gates.py")
-    report.append(f"gates: patched thresholds {', '.join(sorted(overrides))}")
+    parts = []
+    if nums:
+        parts.append(f"thresholds {', '.join(sorted(nums))}")
+    if strs:
+        parts.append(f"contract {', '.join(sorted(strs))}")
+    report.append(f"gates: patched {'; '.join(parts)}")
 
 
 # --- Help docs (the design/ tree served on the Help page) --------------------
@@ -430,6 +505,7 @@ def build(app_dir: str, params: Dict[str, Any], subparts: Dict[str, Any]
     emit_identity(app_dir, params, subparts, manifest, report)
     emit_fleet(app_dir, params, manifest, report)
     emit_commands(app_dir, subparts, manifest, report)
+    emit_profiles(app_dir, subparts, manifest, report)
     emit_networks(app_dir, subparts, manifest, report)
     emit_sequences(app_dir, subparts, manifest, report)
     patch_gate_thresholds(app_dir, subparts, manifest, report)

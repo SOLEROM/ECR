@@ -18,7 +18,8 @@ def test_load_roleA_profile(profile_mgr):
     assert roleA.action("deploy_serviceB").kind == "transfer"
     assert roleA.action("deploy_serviceB").method == "rsync"
     assert "links" in roleA.collectors
-    assert roleA.logs["rx"] == "/tmp/serviceA.rx"
+    # logs is a non-empty map of label → path (the exact labels/paths are app-specific)
+    assert roleA.logs and all(isinstance(v, str) and v for v in roleA.logs.values())
 
 
 def test_load_roleB_profile_via_jumphost(profile_mgr):
@@ -33,8 +34,9 @@ def test_render_action(fleet, profile_mgr):
     p = fleet.params(fleet.get("d2"))
     a = render_action(profile_mgr.load("roleA").action("serviceA_start"), p)
     assert "ID=2" in a.command
-    assert "ADDR=10.1.2.255" in a.command
-    assert "./variantB.run tcp" in a.command
+    # the variant-B broadcast addr + launcher are substituted (whatever the app names them)
+    assert p["VAR_ADDR"] in a.command
+    assert f"./{p['VAR_LAUNCHER']} tcp" in a.command
 
 
 def test_render_action_variant_a_flag_empty(fleet, profile_mgr):
