@@ -29,7 +29,7 @@ from core import (
     Fleet, load_fleet, ProfileManager, SessionManager, SessionManifest,
     EventStream, EventType, Orchestrator, StreamManager, init_sync, now_iso,
     render_connection, CommandCatalog, ConfigStore, default_roots,
-    StateRegistry, StateMonitor,
+    StateRegistry, StateMonitor, LogsRegistry, LogStreamManager,
 )
 from core.mock_ssh import MockFleetState, MockSSHClient
 
@@ -58,6 +58,8 @@ class CCFletApp:
         self.mock_state = mock_state
         self.current_id = None
         self.current_storage = None
+        self.mock = False
+        self.dry_run = False
         # config-over-code (D8): set by create_app
         self.fleet_path = None
         self.config = None      # ConfigStore (Config page backend)
@@ -67,6 +69,10 @@ class CCFletApp:
         self.states_dir = None
         self.states = None          # StateRegistry (ping links + cmd states → the bar)
         self.state_monitor = None   # StateMonitor (poller → states_status broadcast)
+        # base-station log windows (the Logs view): set by create_app
+        self.logs_dir = None
+        self.logs = None            # LogsRegistry (the configured log windows)
+        self.log_stream = None      # LogStreamManager (live local-file tailing)
 
     # ---- sessions --------------------------------------------------------
     def start_session(self, name=None, user=None):
@@ -224,8 +230,8 @@ class CCFletApp:
     def reload_config(self, scope, user=None):
         """Hot-reload one config scope in place — no restart (D8).
 
-        scope ∈ {fleet, profiles, commands, states}. Returns a short human summary. Every
-        holder (orchestrator, client factory, mock state) shares the same `Fleet`
+        scope ∈ {fleet, profiles, commands, states, logs}. Returns a short human summary.
+        Every holder (orchestrator, client factory, mock state) shares the same `Fleet`
         object, so the fleet is reloaded in place; the connection pool is closed so
         changed hosts reconnect lazily.
         """
@@ -262,11 +268,41 @@ class CCFletApp:
             if self.state_monitor:
                 self.run_bg(self.state_monitor.poll_once)
             summary = f"states · {len(self.states.indicators)} indicators"
+        elif scope == "logs":
+            # Reload the window list in place (the streamer holds the same registry ref),
+            # then tell the Logs view to rebuild its panes from the fresh /api/logs.
+            self.logs.reload()
+            if self.sync:
+                self.sync.broadcast_logs_changed()
+            summary = f"logs · {len(self.logs.windows)} windows"
         else:
             return None
         self.orch._emit(EventType.CONFIG_RELOADED,
                         {"scope": scope, "summary": summary}, user=user)
         return summary
+
+    # ---- log artifacts (session ZIP) ------------------------------------
+    def capture_log_artifacts(self, storage):
+        """Snapshot every configured log window into the session's ``artifacts/logs/``
+        so the exported ZIP always carries the logs the operator defined — whether or
+        not a pane was opened live (P6, P8). Echo-only under ``--mock``/``--dry-run`` and
+        skipped per-file when base-station local exec is disabled. Audited as a note."""
+        if not self.logs or not storage:
+            return []
+        from core import snapshot_windows
+        written = snapshot_windows(self.logs.windows, storage,
+                                   simulate=(self.mock or self.dry_run),
+                                   allow_local=self.allow_local)
+        ok = sum(1 for w in written if w.get("ok"))
+        # Audit into the *exported* session's own log (export may target a past session),
+        # so the captured artifacts are recorded alongside the run they ship with (P6).
+        try:
+            EventStream(storage.events_path).append(
+                EventType.NOTE,
+                {"text": f"captured {ok}/{len(written)} log artifact(s) on export"})
+        except Exception:  # noqa: BLE001 — a stale/closed log must not block the download
+            pass
+        return written
 
     # ---- background runner ----------------------------------------------
     def run_bg(self, fn, *args, **kwargs):
@@ -289,7 +325,8 @@ def _real_factory(fleet, profile_mgr):
 
 
 def create_app(fleet_path=None, profiles_dir=None, commands_dir=None, runs_dir=None,
-               states_dir=None, mock=False, dry_run=False, poll=True, allow_local=True):
+               states_dir=None, logs_dir=None, mock=False, dry_run=False, poll=True,
+               allow_local=True):
     here = os.path.dirname(os.path.abspath(__file__))
     fleet_path = fleet_path or os.path.join(here, "fleet", "fleet.yaml")
     profiles_dir = profiles_dir or os.path.join(here, "profiles")
@@ -298,6 +335,9 @@ def create_app(fleet_path=None, profiles_dir=None, commands_dir=None, runs_dir=N
     # the States config root: the dir holding the state-source files (ping + cmd). Kept
     # as networks/ on disk; surfaced as "States" on the Config page.
     states_dir = states_dir or os.path.join(here, "networks")
+    # the Logs config root: the dir holding the log-window source files (base-station
+    # tails). Surfaced as "Logs" on the Config page; the dashboard's third view.
+    logs_dir = logs_dir or os.path.join(here, "logs")
 
     fleet = load_fleet(fleet_path)
     profile_mgr = ProfileManager(profiles_dir)
@@ -306,8 +346,9 @@ def create_app(fleet_path=None, profiles_dir=None, commands_dir=None, runs_dir=N
     session_mgr = SessionManager(runs_dir)
     commands = CommandCatalog(commands_dir)   # loads commands_{host,roleA,roleB}.yaml
     states = StateRegistry(states_dir)        # loads networks.yaml (ping) + stateA.yaml (cmd)
+    logs = LogsRegistry(logs_dir)             # loads logs.yaml (base-station log windows)
     config_store = ConfigStore(
-        default_roots(fleet_path, profiles_dir, commands_dir, states_dir),
+        default_roots(fleet_path, profiles_dir, commands_dir, states_dir, logs_dir),
         dry_run=dry_run)
 
     app = Flask(__name__,
@@ -353,6 +394,8 @@ def create_app(fleet_path=None, profiles_dir=None, commands_dir=None, runs_dir=N
     state_monitor = StateMonitor(states, sync_manager=sync, simulate=(mock or dry_run),
                                  allow_local=allow_local, on_change=_log_state_change)
     ccflet = CCFletApp(fleet, profile_mgr, session_mgr, orch, sync, socketio, mock_state)
+    ccflet.mock = mock
+    ccflet.dry_run = dry_run
     ccflet.fleet_path = fleet_path
     ccflet.config = config_store
     ccflet.commands = commands
@@ -360,9 +403,18 @@ def create_app(fleet_path=None, profiles_dir=None, commands_dir=None, runs_dir=N
     ccflet.states_dir = states_dir
     ccflet.states = states
     ccflet.state_monitor = state_monitor
+    ccflet.logs_dir = logs_dir
+    ccflet.logs = logs
     ccflet.start_session("boot")
     ccflet.stream_mgr = StreamManager(socketio, orch, sync,
                                   session_getter=lambda: ccflet.current_storage)
+    # base-station log windows (the Logs view): live local-file tailing. Simulated under
+    # mock/dry-run and gated by --no-local-commands, like local custom commands + cmd states.
+    ccflet.log_stream = LogStreamManager(
+        socketio, logs_getter=lambda: ccflet.logs,
+        session_getter=lambda: ccflet.current_storage,
+        events_getter=lambda: ccflet.orch.events,
+        simulate=(mock or dry_run), allow_local=allow_local, sync_manager=sync)
 
     from web.routes import web as web_bp, init_routes
     init_routes(ccflet, mock=mock, dry_run=dry_run,
@@ -404,6 +456,7 @@ def main():
     p.add_argument("--profiles-dir", help="role profiles dir")
     p.add_argument("--commands-dir", help="operator command catalog dir")
     p.add_argument("--states-dir", help="status-LED state sources dir (the States bar)")
+    p.add_argument("--logs-dir", help="log-window sources dir (the Logs view)")
     p.add_argument("--runs-dir", help="ops-session storage dir")
     p.add_argument("--mock", action="store_true",
                    help="use the simulated fleet backend (no hardware)")
@@ -418,7 +471,7 @@ def main():
     app, socketio, ccflet = create_app(
         fleet_path=args.fleet, profiles_dir=args.profiles_dir,
         commands_dir=args.commands_dir, runs_dir=args.runs_dir,
-        states_dir=args.states_dir,
+        states_dir=args.states_dir, logs_dir=args.logs_dir,
         mock=args.mock, dry_run=args.dry_run, poll=not args.no_poll,
         allow_local=not args.no_local_commands)
 
@@ -447,6 +500,8 @@ def main():
         if ccflet.state_monitor:
             ccflet.state_monitor.stop()
         ccflet.stream_mgr.stop_all()
+        if ccflet.log_stream:
+            ccflet.log_stream.stop_all()
         ccflet.orch.pool.close_all()
         sys.exit(0)
 

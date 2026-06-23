@@ -56,6 +56,7 @@ and tell us which one to turn.
 | 12 | [Security & Operations](12-security-and-operations.md) | No-auth posture, shell / path / XSS safety, run & deploy |
 | 13 | [Config & Commands](13-config-and-commands.md) | Config over code: edit logic from the browser, operator-defined remote & local commands |
 | 14 | [Connectivity LEDs](14-connectivity-leds.md) | The top-bar link-reachability ping LEDs, driven by operator-editable `networks.yaml` |
+| 15 | [Logs view (base-station log windows)](15-base-station-logs.md) | The dashboard's third view: live `tail -F` windows over operator-defined base-station log files, snapshotted into the session ZIP |
 
 > **In the repo but not a design *concern*:** `scripts/` holds standalone
 > base-station **CLI helpers** (e.g. `scripts/clear_sessions.sh`, which wipes every

@@ -126,6 +126,10 @@ class SyncManager:
         """Command catalog edited (D8): clients rebuild their custom-command buttons."""
         self.socketio.emit("commands_changed", {}, room=FLEET_ROOM)
 
+    def broadcast_logs_changed(self):
+        """Log-windows config edited (D8): the Logs view rebuilds its panes."""
+        self.socketio.emit("logs_changed", {}, room=FLEET_ROOM)
+
     def broadcast_states_status(self, states: list):
         """Base-station status poll result → the States bar under the header. ``states``
         is a list of ``{key,label,kind,color,detail,hint}`` (ping links + cmd states)."""

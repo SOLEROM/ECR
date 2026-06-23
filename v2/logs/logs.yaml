@@ -1,0 +1,49 @@
+# logs/logs.yaml — the Logs view (config over code, P8).
+#
+# Each entry is one live log window shown on the dashboard's **Logs** view (the third
+# view, beside Grid / Tabs). A window tails a file **on the base station** (the machine
+# running ccFleet) with `tail -F`, streamed into an xterm pane — the read-only,
+# many-panes-at-once counterpart of a node's "Live logs" tab, but for the control
+# station's own processes.
+#
+# Per window:
+#   key      a unique bare token (letters, digits, '-', '_') — also the artifact filename
+#   label    the pane title (defaults to `process`, then `key`)
+#   process  the process being watched (shown in the pane header; informational)
+#   path     the log FILE on the base station to tail (passed to `tail` as an argv
+#            element — never a shell, so no injection surface)
+#   lines    how many trailing lines to seed the pane with (default: `default_lines`)
+#   hint     optional one-line note (tooltip)
+#
+# Edit freely from the Config page (the "Logs" root): saves are validated, backed up,
+# hot-reloaded (the Logs view rebuilds its panes) and audited like any other config.
+# On session export, every window here is also snapshotted into the ZIP as
+# artifacts/logs/<key>.log, so a run always carries the logs you chose to watch.
+#
+# Tailing is SIMULATED under --mock / --dry-run (rolling placeholder lines, no file is
+# read) and DISABLED under --no-local-commands (the pane shows a notice) — the same
+# base-station, config-over-code posture as local custom commands and cmd States.
+logs:
+  default_lines: 200        # trailing lines a window seeds with unless it sets `lines`
+  windows:
+    # 1) ccFleet's own server log (point this at wherever you redirect app.py's output)
+    - key: ccfleet
+      label: ccFleet server
+      process: app.py
+      path: /tmp/ccflet/ccfleet.log
+      hint: the ccFleet base-station server log
+
+    # 2) the system log (journald/rsyslog text sink — adjust for your distro)
+    - key: syslog
+      label: System log
+      process: rsyslogd
+      path: /var/log/syslog
+      lines: 300
+      hint: base-station system log
+
+    # 3) any other base-station process you want eyes on during a run
+    - key: deploy
+      label: Deploy log
+      process: deploy
+      path: /tmp/ccflet/deploy.log
+      hint: set this to your deploy/build log on the base station

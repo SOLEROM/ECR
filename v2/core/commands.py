@@ -31,6 +31,13 @@ import yaml
 ON_TARGETS = ("remote", "local")
 SCOPES = ("node", "fleet")
 ROLES = ("roleA", "roleB")
+# Where a fleet-scoped command's button is shown across the two session surfaces:
+#   fullPage = the full session page only (web/templates/session_view.html)
+#   downPage = the bottom session dock only (the reduced drawer in base.html)
+#   both     = both surfaces (the default)
+# Lets an operator keep a noisy/rare button off the compact dock while still reaching
+# it on the full page (or vice-versa) — purely a visibility control, no behavior change.
+SESSION_SCOPES = ("fullPage", "downPage", "both")
 # command names reach the UI + audit, never a shell; keep them tidy tokens.
 NAME_RE = re.compile(r"^[A-Za-z0-9_-]+$")
 
@@ -68,11 +75,13 @@ class Command:
     script: Optional[str] = None   # bare filename under commands/
     timeout: int = 60
     danger: bool = False
+    session_scope: str = "both"    # fullPage | downPage | both — where the button shows
 
     def to_meta(self) -> dict:
         """Metadata the UI needs to render a button — never the command body."""
         return {"name": self.name, "label": self.label, "group": self.group,
                 "on": self.on, "role": self.role, "scope": self.scope,
+                "session_scope": self.session_scope,
                 "danger": self.danger, "has_script": bool(self.script)}
 
 
@@ -93,6 +102,10 @@ def _command_from_dict(name, d, default_timeout: int, defaults=None) -> Command:
     scope = d.get("scope", defaults.get("scope", "node"))
     if scope not in SCOPES:
         raise ValueError(f"command {name!r}: 'scope' must be one of {SCOPES}")
+    session_scope = d.get("session_scope", defaults.get("session_scope", "both"))
+    if session_scope not in SESSION_SCOPES:
+        raise ValueError(
+            f"command {name!r}: 'session_scope' must be one of {SESSION_SCOPES}")
     role = d.get("role", defaults.get("role", "roleA"))
     if on == "remote" and role not in ROLES:
         raise ValueError(f"command {name!r}: 'role' must be one of {ROLES}")
@@ -109,7 +122,7 @@ def _command_from_dict(name, d, default_timeout: int, defaults=None) -> Command:
         name=name,
         label=str(d.get("label") or name),
         group=str(d.get("group") or "Commands"),
-        on=on, role=role, scope=scope,
+        on=on, role=role, scope=scope, session_scope=session_scope,
         run=run, script=script,
         timeout=int(d.get("timeout", default_timeout)),
         danger=bool(d.get("danger", False)),

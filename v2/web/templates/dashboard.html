@@ -2,15 +2,17 @@
 {% block title %}Fleet{% endblock %}
 {% block content %}
 <!-- Deploy / Bring-up / Tear-down and variant are **per-node** (each is on the node's
-     own card/detail). One top bar: selection cluster on the left, health-refresh +
-     the view toggle on the right.
+     own card/detail). One top bar: selection cluster on the left (the "Select" word
+     also re-polls fleet health), the view toggle on the right.
      GUI parts on this page are tagged guiPart11–guiPart40 (see web/templates/GUIPARTS.md). -->
 
 <!-- guiPart11 — dashboard toolbar (selection cluster + view toggle) -->
 <div class="toolbar" id="guiPart11" data-guipart="11">
-  <!-- guiPart12 — selection cluster (All / Clear / Groups) -->
+  <!-- guiPart12 — selection cluster (All / Clear / Groups). The "Select" word is
+       also the health-refresh trigger (guiPart14 — replaces the old ⟳ Refresh button). -->
   <div class="sel-cluster" id="selRow" data-guipart="12" title="Highlight a subset of nodes (a visual grouping aid; ops are per-node)">
-    <label>Select</label>
+    <!-- guiPart14 — health refresh: click the "Select" word to re-poll the fleet -->
+    <label id="selRefresh" class="refresh-lbl" data-guipart="14" role="button" tabindex="0" title="Refresh fleet health">Select</label>
     <button class="btn sm" id="selAll" title="Select every node">All</button>
     <button class="btn sm" id="selClear" title="Clear the selection">Clear</button>
     <span class="sep"></span>
@@ -22,16 +24,15 @@
     <span class="muted sel-count" id="selCount" data-guipart="13">no selection</span>
   </div>
   <span class="grow"></span>
-  <!-- guiPart14 — health refresh -->
-  <button class="btn ghost" id="btnRefresh" data-guipart="14">⟳ Refresh</button>
   <!-- guiPart15 — reset custom card order -->
   <button class="btn ghost hidden" id="btnResetOrder" data-guipart="15" title="Forget the custom drag order and restore the fleet (YAML) order">↕ Reset order</button>
   <span class="sep"></span>
   <label>View</label>
-  <!-- guiPart16 — grid / tabs view toggle -->
+  <!-- guiPart16 — grid / tabs / logs view toggle -->
   <div class="seg" id="viewSeg" data-guipart="16" title="Switch dashboard layout">
     <button data-view="grid" title="Matrix of node cards">▦ Grid</button>
     <button data-view="tabs" title="One node per tab (full detail)">❐ Tabs</button>
+    <button data-view="logs" title="Live base-station log windows (configured on the Config page)">▤ Logs</button>
   </div>
 </div>
 
@@ -105,6 +106,15 @@
     {% for n in fleet.nodes %}
     <div class="nodepane" id="pane-{{n.name}}" data-guipart="40" data-node="{{n.name}}"></div>
     {% endfor %}
+  </div>
+</div>
+
+<!-- guiPart121 — logs view: a grid of live base-station log windows. Built client-side
+     from /api/logs (the operator-editable logs/ config, P8) so editing the YAML + reload
+     changes the panes with no template edit. guiPart122 = the grid; guiPart123 = one window. -->
+<div id="logsView" class="hidden" data-guipart="121">
+  <div class="logsgrid" id="logsGrid" data-guipart="122">
+    <div class="empty sm">loading log windows…</div>
   </div>
 </div>
 {% endblock %}
@@ -240,8 +250,12 @@ async function loadStatus() {
 }
 
 // ---- actions ----
-document.getElementById("btnRefresh").onclick = async () => {
+// The "Select" word doubles as the health-refresh trigger (replaces the old ⟳ Refresh button).
+const selRefresh = document.getElementById("selRefresh");
+selRefresh.onclick = async () => {
   await CCFlet.api("/api/fleet/refresh","POST"); CCFlet.toast("refreshing health…"); };
+selRefresh.onkeydown = (e) => {
+  if (e.key === "Enter" || e.key === " ") { e.preventDefault(); selRefresh.click(); } };
 
 // per-card variant toggle (per-node)
 document.querySelectorAll(".varseg-node button").forEach(b => b.onclick = async (e) => {
@@ -280,12 +294,14 @@ CCFlet.on("fleet_changed", () => {
   CCFlet.toast("fleet config changed — reload to refresh the node grid", "");
 });
 
-// ---- view toggle: grid (matrix) ⇄ tabs (per-node full detail) ----
+// ---- view toggle: grid (matrix) ⇄ tabs (per-node full detail) ⇄ logs ----
 // Tabs reuse the node detail page itself (/node/<name>?embed=1) inside an iframe,
 // created lazily on first activation so we never open 10 sockets at once. Visited
 // tabs stay live in the background; switching back is instant with no reload.
 const elGrid = document.getElementById("grid");
 const elTabs = document.getElementById("tabsView");
+const elLogs = document.getElementById("logsView");
+const elLogsGrid = document.getElementById("logsGrid");
 const elSelRow = document.getElementById("selRow");
 let curTab = null;
 
@@ -304,11 +320,189 @@ function activateTab(name) {
   }
 }
 
+// ---- logs view: a grid of live base-station log windows -----------------
+// Built client-side from /api/logs (the operator-editable logs/ config), each a
+// tail -F pane (xterm) streamed over the logwin_* socket events. Panes are built
+// lazily on first activation; we subscribe only while the view is showing (and
+// unsubscribe on leave) so the base station only tails what is on screen.
+let WINS = {};                 // key -> { term, fit }
+let logsBuilt = false, logsActive = false;
+
+function whenSocket(fn) {
+  if (CCFlet.socket && CCFlet.socket.connected) return fn();
+  const iv = setInterval(() => {
+    if (CCFlet.socket && CCFlet.socket.connected) { clearInterval(iv); fn(); }
+  }, 200);
+}
+
+async function buildLogs() {
+  const data = await CCFlet.api("/api/logs");
+  const wins = (data && data.windows) || [];
+  Object.values(WINS).forEach(w => { try { w.term.dispose(); } catch (e) {} });
+  WINS = {};
+  elLogsGrid.innerHTML = "";
+  if (!wins.length) {
+    const e = document.createElement("div");
+    e.className = "empty";
+    e.textContent = "No log windows configured — add them on the Config page (the “Logs” root).";
+    elLogsGrid.appendChild(e);
+    logsBuilt = true;
+    return;
+  }
+  wins.forEach(w => {
+    // panel header: drag grip + title + process/path (textContent — operator-authored, XSS-safe)
+    const panel = document.createElement("div");
+    panel.className = "panel logwin"; panel.setAttribute("data-guipart", "123");
+    panel.dataset.logkey = w.key;                      // identifies the pane for reordering
+    const h = document.createElement("h3");
+    const grip = document.createElement("span");
+    grip.className = "drag-grip"; grip.textContent = "⠿";
+    grip.title = "Drag to reorder — the order is saved in this browser";
+    grip.setAttribute("aria-label", "drag to reorder");
+    const title = document.createElement("span"); title.className = "lw-title"; title.textContent = w.label;
+    const meta = document.createElement("span"); meta.className = "muted lw-meta";
+    meta.textContent = (w.process ? w.process + " · " : "") + w.path;
+    // per-window start/stop: stop tailing on demand, start it again later
+    const toggle = document.createElement("button");
+    toggle.className = "btn sm ghost lw-toggle";
+    toggle.onclick = () => toggleWin(w.key);
+    h.append(grip, title, meta, toggle);
+    const body = document.createElement("div"); body.className = "lw-body";
+    const wrap = document.createElement("div"); wrap.className = "term-wrap";
+    const host = document.createElement("div"); host.className = "xterm-host";
+    wrap.appendChild(host); body.appendChild(wrap);
+    panel.append(h, body);
+    elLogsGrid.appendChild(panel);
+    const term = new Terminal({ convertEol: true, fontSize: 12, theme: { background: "#000" },
+      scrollback: 3000, fontFamily: '"SF Mono",Menlo,Consolas,monospace' });
+    const fit = new FitAddon.FitAddon();
+    term.loadAddon(fit); term.open(host);
+    setTimeout(() => { try { fit.fit(); } catch (e) {} }, 50);
+    WINS[w.key] = { term, fit, toggle, running: true }; // default: every window starts live
+    setToggleLabel(w.key);
+    wireLogDrag(panel);                                // drag the grip to reorder (like grid cards)
+  });
+  applyLogOrder(loadLogOrder());                       // restore the per-browser pane order
+  logsBuilt = true;
+}
+
+function subscribeLogs() {
+  // defer until the socket is up, but only subscribe windows still on the logs view AND
+  // currently running (a window the operator stopped stays stopped on view re-entry).
+  whenSocket(() => { if (logsActive) Object.entries(WINS).forEach(([k, w]) => {
+    if (w.running) CCFlet.socket.emit("subscribe_logwin", { key: k }); }); });
+}
+function unsubscribeLogs() {
+  // unsubscribe every window (a stopped one isn't subscribed → harmless no-op server-side).
+  if (!CCFlet.socket) return;
+  Object.keys(WINS).forEach(k => CCFlet.socket.emit("unsubscribe_logwin", { key: k }));
+}
+function fitLogs() { Object.values(WINS).forEach(w => { try { w.fit.fit(); } catch (e) {} }); }
+
+// ---- per-window start/stop ----------------------------------------------
+// Every window starts live (running). Stop unsubscribes just that window's tail
+// (the base station drops it); Start re-subscribes and the pane re-seeds with the
+// latest lines. State is per-page (resets to all-running on reload), as requested.
+function setToggleLabel(key) {
+  const w = WINS[key]; if (!w || !w.toggle) return;
+  w.toggle.textContent = w.running ? "⏸ Stop" : "▶ Start";
+  w.toggle.title = w.running ? "Stop tailing this log" : "Start tailing this log";
+  w.toggle.classList.toggle("warn", w.running);
+  const panel = w.toggle.closest(".logwin");
+  if (panel) panel.classList.toggle("stopped", !w.running);
+}
+function toggleWin(key) {
+  const w = WINS[key]; if (!w) return;
+  w.running = !w.running;
+  if (w.running) {
+    w.term.writeln("[ccflet] — resumed —");
+    whenSocket(() => { if (WINS[key] && WINS[key].running && logsActive)
+      CCFlet.socket.emit("subscribe_logwin", { key }); });
+  } else {
+    if (CCFlet.socket) CCFlet.socket.emit("unsubscribe_logwin", { key });
+    w.term.writeln("[ccflet] — stopped —");
+  }
+  setToggleLabel(key);
+}
+
+// ---- drag to reorder log windows (mirrors the grid card drag) -----------
+// The operator drags a pane by its ⠿ grip to arrange the wall however they like;
+// the order is saved per-browser (localStorage, keyed by window key) and re-applied
+// each time the panes are (re)built. Purely a layout aid — streaming is keyed by
+// window key, not DOM order, so reordering never touches a subscription.
+const LOGWIN_ORDER_KEY = "ccflet_logwin_order";
+let dragWin = null;
+
+function loadLogOrder() {
+  try { return JSON.parse(localStorage.getItem(LOGWIN_ORDER_KEY)) || []; } catch (e) { return []; }
+}
+// reorder the grid's panes to match `order`; unknown keys (just-added in config)
+// sink to the end in their existing order.
+function applyLogOrder(order) {
+  if (!order || !order.length) return;
+  const rank = new Map(order.map((k, i) => [k, i]));
+  const at = (el) => rank.has(el.dataset.logkey) ? rank.get(el.dataset.logkey) : 1e9;
+  [...elLogsGrid.querySelectorAll(".logwin")]
+    .sort((a, b) => at(a) - at(b))
+    .forEach(el => elLogsGrid.appendChild(el));
+}
+function persistLogOrder() {
+  const order = [...elLogsGrid.querySelectorAll(".logwin")].map(p => p.dataset.logkey);
+  try { localStorage.setItem(LOGWIN_ORDER_KEY, JSON.stringify(order)); } catch (e) {}
+}
+function wireLogDrag(panel) {
+  const grip = panel.querySelector(".drag-grip");
+  // only the grip arms dragging, so the xterm pane keeps its own mouse/selection.
+  if (grip) {
+    grip.addEventListener("mousedown", () => { panel.draggable = true; });
+    grip.addEventListener("mouseup", () => { panel.draggable = false; });
+  }
+  panel.addEventListener("dragstart", (e) => {
+    dragWin = panel; panel.classList.add("dragging");
+    e.dataTransfer.effectAllowed = "move";
+    try { e.dataTransfer.setData("text/plain", panel.dataset.logkey); } catch (_) {}
+  });
+  panel.addEventListener("dragend", () => {
+    panel.classList.remove("dragging"); panel.draggable = false; dragWin = null;
+    persistLogOrder(); setTimeout(fitLogs, 60);        // refit after the cells settle
+  });
+  panel.addEventListener("dragover", (e) => {
+    if (!dragWin || dragWin === panel) return;
+    e.preventDefault();                                // allow the drop
+    const r = panel.getBoundingClientRect();           // left half → before, else after
+    const before = (e.clientX - r.left) < r.width / 2;
+    panel[before ? "before" : "after"](dragWin);
+  });
+}
+
+async function enterLogs() {
+  if (!logsBuilt) await buildLogs();
+  logsActive = true;
+  subscribeLogs();
+  setTimeout(fitLogs, 60);     // terminals fit once their container is visible
+}
+function leaveLogs() {
+  if (!logsActive) return;
+  logsActive = false;
+  unsubscribeLogs();
+}
+
+CCFlet.on("logwin_line", (d) => { const w = WINS[d.key]; if (w) w.term.writeln(d.line); });
+// logs config edited on the Config page → rebuild the panes from the fresh /api/logs.
+CCFlet.on("logs_changed", async () => {
+  const wasActive = logsActive;
+  if (logsActive) unsubscribeLogs();
+  logsBuilt = false;
+  if (wasActive) { await buildLogs(); subscribeLogs(); setTimeout(fitLogs, 60); }
+});
+window.addEventListener("resize", () => { if (logsActive) fitLogs(); });
+
 function setView(view) {
-  const tabs = view === "tabs";
-  elGrid.classList.toggle("hidden", tabs);
+  const grid = view === "grid", tabs = view === "tabs", logs = view === "logs";
+  elGrid.classList.toggle("hidden", !grid);
   elTabs.classList.toggle("hidden", !tabs);
-  elSelRow.classList.toggle("hidden", tabs);         // selection is grid-only
+  elLogs.classList.toggle("hidden", !logs);
+  elSelRow.classList.toggle("hidden", !grid);        // selection is grid-only
   document.querySelectorAll("#viewSeg button").forEach(b =>
     b.classList.toggle("active", b.dataset.view === view));
   try { localStorage.setItem("ccflet_view", view); } catch (e) {}
@@ -316,6 +510,7 @@ function setView(view) {
     const first = document.querySelector(".nodetab");
     if (first) activateTab(first.dataset.node);
   }
+  if (logs) enterLogs(); else leaveLogs();
 }
 
 document.querySelectorAll("#viewSeg button").forEach(b =>

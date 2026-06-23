@@ -6,6 +6,8 @@
 #
 #   scope: node   = a per-node button (fans out across a selection)  [default here]
 #          fleet  = a single button (runs on the selection / whole fleet)
+#   session_scope: fullPage | downPage | both (default) — for fleet buttons, which
+#                  session surface shows it: the full session page, the bottom dock, or both
 #   run:   an inline command        — OR —        script: a *.sh file in this folder
 #   timeout / danger (red styling + audit emphasis; there is NO confirm prompt)
 #
@@ -26,6 +28,7 @@ commands:
     label: "Uptime"
     group: Diagnostics
     scope: fleet
+    session_scope: both   # fullPage | downPage | both — shown on both session surfaces
     run: "uptime"
 
   reboot_roleA:

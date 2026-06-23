@@ -29,6 +29,8 @@ GOOD_STATES_CMD = ("states:\n  probes:\n"
                    "    - {key: disk, cmd: 'true', return_colors: {0: green, 1: red}}\n")
 BAD_STATES_CMD = ("states:\n  probes:\n"
                   "    - {key: disk, cmd: 'true', return_colors: {0: chartreuse}}\n")
+GOOD_LOGS = "logs:\n  windows:\n    - {key: syslog, process: rsyslogd, path: /var/log/syslog}\n"
+BAD_LOGS = "logs:\n  windows:\n    - {key: syslog, process: rsyslogd}\n"   # missing path
 
 
 def make_store(tmp_path, dry_run=False):
@@ -86,6 +88,15 @@ def test_validate_bad_states_cmd():
     assert res["ok"] is False and "color" in res["error"]
 
 
+def test_validate_good_logs():
+    assert validate_text("logs", GOOD_LOGS)["ok"] is True
+
+
+def test_validate_bad_logs():
+    res = validate_text("logs", BAD_LOGS)
+    assert res["ok"] is False and "path" in res["error"]
+
+
 def test_validate_script_empty():
     assert validate_text("script", "   ")["ok"] is False
     assert validate_text("script", "#!/bin/sh\necho hi")["ok"] is True
@@ -114,6 +125,25 @@ def test_scope_of(tmp_path):
     assert store.scope_of("fleet") == "fleet"
     assert store.scope_of("commands") == "commands"
     assert store.scope_of("nope") is None
+
+
+def test_logs_root_registered(tmp_path):
+    fleet_dir = tmp_path / "fleet"; fleet_dir.mkdir()
+    prof_dir = tmp_path / "profiles"; prof_dir.mkdir()
+    logs_dir = tmp_path / "logs"; logs_dir.mkdir()
+    (fleet_dir / "fleet.yaml").write_text(GOOD_FLEET)
+    (prof_dir / "roleA.yaml").write_text(MIN_PROFILE)
+    (logs_dir / "logs.yaml").write_text(GOOD_LOGS)
+    roots = default_roots(str(fleet_dir / "fleet.yaml"), str(prof_dir),
+                          logs_dir=str(logs_dir))
+    store = ConfigStore(roots)
+    assert store.scope_of("logs") == "logs"
+    logs_root = next(r for r in store.list_tree() if r["key"] == "logs")
+    assert logs_root["label"] == "Logs"
+    assert {f["name"]: f["kind"] for f in logs_root["files"]}["logs.yaml"] == "logs"
+    # a good logs file writes; an invalid one (missing path) is rejected before write
+    assert store.write_file("logs", "logs.yaml", GOOD_LOGS)["ok"] is True
+    assert store.write_file("logs", "logs.yaml", BAD_LOGS)["ok"] is False
 
 
 # ---- path safety ------------------------------------------------------------

@@ -344,6 +344,19 @@ def api_node_sequence(name, seq):
     return jsonify({"success": True, "started": True})
 
 
+# ============ Logs view (base-station log windows, D8 — config over code) =====
+@web.route("/api/logs")
+def api_logs():
+    """The configured log windows for the Logs view (built client-side, so editing
+    ``logs/logs.yaml`` + reload changes the view with no template edit). ``enabled``
+    reflects whether real base-station tailing is available (false → simulated/disabled
+    panes)."""
+    if not ccflet.logs:
+        return jsonify({"windows": [], "enabled": False})
+    enabled = ccflet.allow_local and not (IS_MOCK or IS_DRY)
+    return jsonify({"windows": ccflet.logs.metas(), "enabled": enabled})
+
+
 @web.route("/api/node/<name>/logs")
 def api_node_logs(name):
     if not ccflet.fleet.get(name):
@@ -416,6 +429,9 @@ def api_export(sid):
     storage = ccflet.sessions.get_session(sid)
     if not storage:
         abort(404)
+    # snapshot every configured log window into artifacts/logs/ so the ZIP always carries
+    # the operator-defined base-station logs (whether or not a pane was opened live).
+    ccflet.capture_log_artifacts(storage)
     archive = storage.create_archive()
     return send_file(archive, mimetype="application/zip", as_attachment=True,
                      download_name=os.path.basename(archive))

@@ -50,6 +50,23 @@ def test_meta_carries_no_command_body():
     m = cmds["df"].to_meta()
     assert "run" not in m and "script" not in m
     assert m["name"] == "df" and m["on"] == "remote" and m["has_script"] is False
+    assert m["session_scope"] == "both"   # default → button shows on both surfaces
+
+
+def test_session_scope_default_and_values():
+    cmds = commands_from_dict({"commands": {
+        "a": {"label": "A", "run": "uptime"},                              # default
+        "b": {"label": "B", "run": "uptime", "session_scope": "fullPage"},
+        "c": {"label": "C", "run": "uptime", "session_scope": "downPage"},
+    }})
+    assert cmds["a"].session_scope == "both"
+    assert cmds["b"].session_scope == "fullPage"
+    assert cmds["c"].session_scope == "downPage"
+
+
+def test_invalid_session_scope():
+    with pytest.raises(ValueError, match="session_scope"):
+        commands_from_dict({"commands": {"x": {"run": "a", "session_scope": "sidebar"}}})
 
 
 def test_catalog_loads_split_shipped_files():

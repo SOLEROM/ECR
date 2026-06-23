@@ -103,6 +103,7 @@ commands:
 | `on` | `remote`/`local` — **implied by the file**; rarely set per-entry |
 | `role` | `roleA` \| `roleB` — **implied by the file** (remote only) |
 | `scope` | `node` (shows per-node, fans out across a selection for remote) or `fleet` |
+| `session_scope` | for `fleet` buttons: `fullPage` \| `downPage` \| `both` (default) — which session surface shows the button (full session page vs the bottom dock) |
 | `run` | inline command — **xor** `script` |
 | `script` | a file under `commands/` (resolved path-safely) |
 | `timeout` | seconds; defaults to `settings.default_timeout` |

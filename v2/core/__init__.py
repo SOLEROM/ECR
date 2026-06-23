@@ -23,9 +23,11 @@ from .states import (
     cmd_states_from_dict, state_file_from_dict,
 )
 from .state_monitor import StateMonitor, ping_once
+from .logs import LogWindow, LogsRegistry, logs_from_dict
 from .config_store import ConfigStore, ConfigRoot, default_roots, validate_text
 from .orchestrator import Orchestrator, ActionResult, ConnectionPool
 from .streaming import StreamManager
+from .log_stream import LogStreamManager, snapshot_windows
 
 __all__ = [
     "CommandResult",
@@ -42,7 +44,9 @@ __all__ = [
     "StateRegistry", "Indicator", "STATE_COLORS",
     "cmd_states_from_dict", "state_file_from_dict",
     "StateMonitor", "ping_once",
+    "LogWindow", "LogsRegistry", "logs_from_dict",
     "ConfigStore", "ConfigRoot", "default_roots", "validate_text",
     "Orchestrator", "ActionResult", "ConnectionPool",
     "StreamManager",
+    "LogStreamManager", "snapshot_windows",
 ]

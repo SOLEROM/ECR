@@ -340,7 +340,10 @@
     };
     const loadCmds = async () => {
       const data = await CCFlet.loadCommands();
-      const list = (data.commands || []).filter((c) => c.scope === "fleet");
+      // fleet-scoped only, and honor session_scope: this is the "downPage" dock, so a
+      // command flagged fullPage-only is hidden here (missing/both/downPage → shown).
+      const list = (data.commands || []).filter(
+        (c) => c.scope === "fleet" && (c.session_scope || "both") !== "fullPage");
       CCFlet.renderCommandButtons(elCmds, list, runCmd);
     };
 
@@ -457,6 +460,18 @@
           (k === "config" && path.startsWith("/config")) ||
           (k === "help" && path.startsWith("/help"))) a.classList.add("active");
     });
+    // "States" word re-checks every state on demand (results arrive over states_status)
+    const statesRefresh = document.getElementById("statesRefresh");
+    if (statesRefresh) {
+      const recheck = async () => {
+        await CCFlet.api("/api/states/refresh", "POST");
+        CCFlet.toast("re-checking states…");
+      };
+      statesRefresh.addEventListener("click", recheck);
+      statesRefresh.addEventListener("keydown", (e) => {
+        if (e.key === "Enter" || e.key === " ") { e.preventDefault(); recheck(); }
+      });
+    }
     // theme toggle (header, top-right) + cross-tab/iframe sync
     const themeBtn = document.getElementById("themeToggle");
     if (themeBtn) themeBtn.addEventListener("click", CCFlet.toggleTheme);

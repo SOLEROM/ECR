@@ -17,7 +17,7 @@ you like. The ids are not used by any logic — they're purely for navigation/re
 | guiPart01 | brand / logo (links home) |
 | guiPart02 | main navigation (Dashboard / Sessions / Config / Help) |
 | guiPart03 | run-mode badge (mock / dry-run / live) |
-| guiPart04 | States bar — status LEDs (ping links + cmd states) |
+| guiPart04 | States bar — status LEDs (ping links + cmd states); the "States" word re-checks all states on demand |
 | guiPart05 | connected-operator roster |
 | guiPart06 | operator name input |
 | guiPart07 | live connection status |
@@ -33,9 +33,9 @@ you like. The ids are not used by any logic — they're purely for navigation/re
 | guiPart11 | toolbar |
 | guiPart12 | selection cluster (All / Clear / Groups) |
 | guiPart13 | selection counter |
-| guiPart14 | health refresh |
+| guiPart14 | health refresh (the "Select" word — click to re-poll the fleet) |
 | guiPart15 | reset card order |
-| guiPart16 | grid / tabs view toggle |
+| guiPart16 | grid / tabs / logs view toggle |
 | guiPart17 | node grid |
 | guiPart18 | node card (one per node) |
 | guiPart19 | card header |
@@ -160,3 +160,11 @@ you like. The ids are not used by any logic — they're purely for navigation/re
 | guiPart117 | doc title |
 | guiPart118 | doc path |
 | guiPart119 | rendered markdown content |
+
+## Logs view — `dashboard.html` (121–123)
+
+| Part | Region |
+|---|---|
+| guiPart121 | logs view container |
+| guiPart122 | logs window grid |
+| guiPart123 | a log window (built in JS) |

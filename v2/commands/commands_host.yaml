@@ -6,6 +6,8 @@
 # save, hot-reloaded (no restart), every save + run audited.
 #
 #   scope: fleet  = one button (the default here)   |   node = per-node button
+#   session_scope: fullPage | downPage | both (default) — for fleet buttons, which
+#                  session surface shows it: the full session page, the bottom dock, or both
 #   run:   an inline command        — OR —        script: a *.sh file in this folder
 #   timeout / danger (red styling + audit emphasis; there is NO confirm prompt)
 #
@@ -27,3 +29,4 @@ commands:
     group: Housekeeping
     script: "archive_runs.sh"
     timeout: 120
+    session_scope: fullPage   # heavier op — keep it off the compact dock, full page only

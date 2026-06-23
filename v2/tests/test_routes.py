@@ -16,7 +16,7 @@ HERE = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 
 @pytest.fixture
 def client(tmp_path):
-    for sub in ("fleet", "profiles", "commands", "networks"):
+    for sub in ("fleet", "profiles", "commands", "networks", "logs"):
         shutil.copytree(os.path.join(HERE, sub), tmp_path / sub)
     (tmp_path / "runs").mkdir()
     flask_app, _socketio, _cc = appmod.create_app(
@@ -24,6 +24,7 @@ def client(tmp_path):
         profiles_dir=str(tmp_path / "profiles"),
         commands_dir=str(tmp_path / "commands"),
         states_dir=str(tmp_path / "networks"),
+        logs_dir=str(tmp_path / "logs"),
         runs_dir=str(tmp_path / "runs"),
         mock=True, poll=False)
     flask_app.config["TESTING"] = True
@@ -122,6 +123,43 @@ def test_states_edit_hot_reloads(client):
     assert r.status_code == 200 and r.get_json()["ok"] and r.get_json()["reloaded"]
     labels = [s["label"] for s in client.get("/api/states").get_json()["states"]]
     assert "EdgeLink" in labels
+
+
+# ---- Logs view (base-station log windows) -----------------------------------
+def test_logs_endpoint_lists(client):
+    body = client.get("/api/logs").get_json()
+    assert body["windows"] and all(w["key"] and w["path"] for w in body["windows"])
+    assert body["enabled"] is False        # mock → simulated panes, not real tailing
+
+
+def test_logs_edit_hot_reloads(client):
+    # relabel the first window live (read its current label from the API so the test
+    # follows a fork that renames its windows), then confirm /api/logs reflects it.
+    win = client.get("/api/logs").get_json()["windows"][0]
+    old_label = win["label"]
+    doc = client.get("/api/config/file?root=logs&path=logs.yaml").get_json()
+    new = doc["text"].replace(old_label, "Kernel ring", 1)
+    assert new != doc["text"]              # the edit actually changed something
+    r = client.post("/api/config/file",
+                    json={"root": "logs", "path": "logs.yaml", "text": new})
+    assert r.status_code == 200 and r.get_json()["ok"] and r.get_json()["reloaded"]
+    labels = [w["label"] for w in client.get("/api/logs").get_json()["windows"]]
+    assert "Kernel ring" in labels
+
+
+def test_export_captures_log_artifacts(client):
+    cc = client.application.ccflet
+    sid = cc.current_id
+    r = client.get(f"/sessions/{sid}/export")
+    assert r.status_code == 200
+    art = os.path.join(cc.sessions.runs_dir, sid, "artifacts", "logs")
+    files = sorted(os.listdir(art))
+    # one artifact per configured window, named <key>.log
+    keys = {w["key"] for w in client.get("/api/logs").get_json()["windows"]}
+    assert files and {f[:-4] for f in files} == keys
+    # under mock the capture is echo-only (no real base-station file is read)
+    with open(os.path.join(art, files[0]), encoding="utf-8") as fh:
+        assert "simulated run" in fh.read()
 
 
 # ---- config editor ----------------------------------------------------------

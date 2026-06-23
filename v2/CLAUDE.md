@@ -75,11 +75,11 @@ python3 -m venv .venv && .venv/bin/pip install -r requirements.txt   # one-time
 .venv/bin/python app.py --mock          # simulated fleet → http://127.0.0.1:5000
 .venv/bin/python app.py                 # real fleet (edit fleet/fleet.yaml)
 .venv/bin/python app.py --dry-run       # print the real SSH commands, run nothing
-.venv/bin/python -m pytest                  # 201 tests, no network
+.venv/bin/python -m pytest                  # 260 tests, no network
 .venv/bin/python -m pytest --cov=core       # coverage
 ```
 
-CLI flags: `--host --public --port --fleet <yaml> --profiles-dir --commands-dir --states-dir <dir> --runs-dir --mock --dry-run --no-poll --no-local-commands --debug`. `--public` binds `0.0.0.0` for the LAN (no-auth posture — §8); default bind is `127.0.0.1:5000`.
+CLI flags: `--host --public --port --fleet <yaml> --profiles-dir --commands-dir --states-dir --logs-dir <dir> --runs-dir --mock --dry-run --no-poll --no-local-commands --debug`. `--public` binds `0.0.0.0` for the LAN (no-auth posture — §8); default bind is `127.0.0.1:5000`.
 
 **Launching the dev server from an automated shell:** use `setsid … &` and poll with
 `curl --retry`. A compound command that exits non-zero tears down the backgrounded
@@ -127,10 +127,12 @@ browser ──HTTP/WebSocket──► Flask + SocketIO (web/routes.py, core/sync
 | `networks.py` | **ping-link** schema (`networks/networks.yaml`) — the *ping* kind of state (P8) | **pure** |
 | `states.py` | **States** umbrella — cmd-state schema (`stateA.yaml`, exit-code→color) + `StateRegistry` merging ping+cmd files into the bar (P8) | **pure** |
 | `state_monitor.py` | **status poller** for the States bar (ping each link · run each cmd) → `states_status` broadcast (sim under mock/dry) | I/O |
+| `logs.py` | **Logs view** schema (`logs/logs.yaml`, base-station log windows) + `LogsRegistry` (P8) | **pure** |
 | `config_store.py` | **Config page** backend — path-safe read/validate/write/revert of the editable roots (P8) | mostly pure |
 | `local_exec.py` | run a **local** (base-station) command as a subprocess → `CommandResult` | mostly pure |
 | `ssh_client.py` | paramiko wrapper + **jump-host** + `exec_stream()` | I/O |
-| `streaming.py` | live `tail -F` → SocketIO rooms → xterm | I/O |
+| `streaming.py` | live node `tail -F` (over SSH) → SocketIO rooms → xterm | I/O |
+| `log_stream.py` | **Logs view** I/O — local `tail -F` of base-station files (`logwin_*` events) + the session-ZIP log-artifact snapshot (sim under mock/dry, gated by `--no-local-commands`) | I/O |
 | `mock_ssh.py` | **stateful simulated fleet** (for `--mock` and tests) | sim |
 | `events.py` `storage.py` `sync.py` | audit JSONL · session dirs/ZIP · multi-op rooms | I/O |
 | `docs.py` | read-only `design/` markdown tree for the **Help** page (in a fork the tree is Compiler-generated — `emit_docs`/`CLAUDE_rebuild.md`) | pure |
@@ -239,7 +241,8 @@ The operator can't touch source, so the logic they tune lives in editable config
 served read-write by the **Config** page (`/config`, the read-write twin of Help):
 
 - **Editable roots** (`core/config_store.py`): `fleet/` · `profiles/` · `commands/` ·
-  `states` (the `networks/` dir). The store is **path-safe** (registered roots only,
+  `states` (the `networks/` dir) · `logs` (the `logs/` dir — base-station log windows for
+  the Logs view). The store is **path-safe** (registered roots only,
   extension allow-list, no traversal — same discipline as `core/docs.py::safe_resolve`)
   and reads the tree fresh per request.
 - **Validate → backup → write → reload → audit** on every save:
@@ -335,6 +338,8 @@ just `pytest`.
 | add an editable config root / change validation | `config_store.py` (`ROOTS`, `validate`) | `tests/test_config_store.py` |
 | add/adjust a **ping LED** in the States bar | `networks/networks.yaml` (a `links` entry) **from the Config page** — no code | reload re-checks; the LED appears |
 | add/adjust a **command-driven state** (exit-code→color) | `networks/stateA.yaml` (a `probes` entry) **from the Config page** — no code | reload re-checks; the LED appears |
+| add/adjust a **log window** in the Logs view | `logs/logs.yaml` (a `windows` entry: process + base-station log path) **from the Config page** — no code | reload rebuilds the panes; saved to the session ZIP on export |
+| change how base-station logs are tailed / captured | `core/log_stream.py` (`LogStreamManager` / `snapshot_windows`) | `tests/test_routes.py` (logs endpoint + export) |
 | change how states are checked | `state_monitor.py` (`ping_once` / `_run_cmd`) | `tests/test_states.py` (inject a `pinger`/`runner`) |
 | change what hot-reload does | `CCFletApp.reload_config` (app.py) + the per-module `reload_*` hooks | reload test + `--mock` |
 | add/adjust a node action (e.g. a new daemon) | `profiles/{roleA,roleB}.yaml` (+ `supervisor` if a new kind) | teach `mock_ssh.py` the new command; add a test |

@@ -211,7 +211,10 @@ if (IS_CURRENT) {
   };
   const loadSessionCommands = async () => {
     const data = await CCFlet.loadCommands();
-    const list = (data.commands || []).filter(c => c.scope === "fleet");
+    // fleet-scoped only, and honor session_scope: this is the "fullPage" view, so a
+    // command flagged downPage-only is hidden here (missing/both/fullPage → shown).
+    const list = (data.commands || []).filter(
+      c => c.scope === "fleet" && (c.session_scope || "both") !== "downPage");
     CCFlet.renderCommandButtons(bar, list, runSessionCommand);
   };
   CCFlet.on("commands_changed", loadSessionCommands);
