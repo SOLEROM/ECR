@@ -14,9 +14,40 @@
   --red: #f85149;
   --purple: #a371f7;
   --orange: #db6d28;
+  --code-bg: #0a0d12;   /* markdown code blocks (themable surface) */
+  --code-fg: #c9d1d9;
   --radius: 8px;
   --mono: "SF Mono", "JetBrains Mono", Menlo, Consolas, monospace;
 }
+
+/* ---- light theme -----------------------------------------------------
+   The whole UI is driven by the variables above, so the toggle (header,
+   top-right) just adds `light` to <html> and these overrides flip it.
+   Terminals/log panes stay dark on purpose (conventional, and they're
+   readable either way). Palette mirrors GitHub's Primer light tokens. */
+html.light {
+  --bg: #ffffff;
+  --bg-1: #f6f8fa;
+  --bg-2: #eaeef2;
+  --bg-3: #d8dee4;
+  --border: #d0d7de;
+  --border-soft: #e4e8ec;
+  --text: #1f2328;
+  --muted: #636c76;
+  --dim: #8c959f;
+  --blue: #0969da;
+  --green: #1a7f37;
+  --yellow: #9a6700;
+  --red: #cf222e;
+  --purple: #8250df;
+  --orange: #bc4c00;
+  --code-bg: #f6f8fa;
+  --code-fg: #1f2328;
+}
+html.light body { background: var(--bg); }
+/* soften the heavy drop-shadows that read as smudges on a light page */
+html.light .toast { box-shadow: 0 8px 24px rgba(140,149,159,.28); }
+html.light .dock { box-shadow: 0 -10px 30px rgba(140,149,159,.28); }
 
 * { box-sizing: border-box; margin: 0; padding: 0; }
 html, body { height: 100%; }
@@ -52,6 +83,18 @@ code, .mono { font-family: var(--mono); }
 .roster { display: flex; gap: 4px; }
 .avatar { width: 22px; height: 22px; border-radius: 50%; display: grid; place-items: center;
   font-size: 11px; font-weight: 700; color: #08090c; }
+
+/* ---- theme toggle (header, top-right) ------------------------------- */
+.theme-toggle { flex: none; display: inline-flex; align-items: center; justify-content: center;
+  width: 30px; height: 30px; padding: 0; border-radius: 6px; cursor: pointer;
+  background: transparent; border: 1px solid var(--border); color: var(--muted); transition: .12s; }
+.theme-toggle:hover { color: var(--text); border-color: var(--dim); background: var(--bg-2); }
+.theme-toggle:active { transform: translateY(1px); }
+.theme-toggle svg { display: block; }
+/* dark mode shows the sun (→ light), light mode shows the moon (→ dark) */
+.theme-toggle .ico-moon { display: none; }
+html.light .theme-toggle .ico-sun { display: none; }
+html.light .theme-toggle .ico-moon { display: block; }
 
 /* ---- base-station connectivity LEDs (the configured off-fleet links) --- */
 .netleds { display: flex; align-items: center; gap: 12px; }
@@ -295,10 +338,10 @@ tr:hover td { background: var(--bg-1); }
 .md-body strong { color: var(--text); font-weight: 600; }
 .md-body code { font-family: var(--mono); font-size: 12.5px; background: var(--bg-2);
   padding: 1px 6px; border-radius: 5px; border: 1px solid var(--border-soft); }
-.md-body pre { background: #0a0d12; border: 1px solid var(--border); border-radius: 8px;
+.md-body pre { background: var(--code-bg); border: 1px solid var(--border); border-radius: 8px;
   padding: 13px 15px; overflow: auto; margin: 13px 0; }
 .md-body pre code { background: none; border: none; padding: 0; font-size: 12.5px;
-  color: #c9d1d9; white-space: pre; line-height: 1.5; }
+  color: var(--code-fg); white-space: pre; line-height: 1.5; }
 .md-body blockquote { margin: 13px 0; padding: 6px 14px; border-left: 3px solid var(--orange);
   background: var(--bg-2); border-radius: 0 6px 6px 0; color: var(--muted); }
 .md-body blockquote p { margin: 4px 0; }
@@ -330,7 +373,7 @@ h1.page { font-size: 20px; margin-bottom: 14px; display: flex; align-items: cent
 .cfg-head .grow { flex: 1; }
 .cfg-head .unsaved { color: var(--yellow); }
 .cfg-text { flex: 1; width: 100%; min-height: 50vh; resize: vertical; border: none;
-  background: #0d1117; color: var(--text); font-size: 13px; line-height: 1.5;
+  background: var(--bg); color: var(--text); font-size: 13px; line-height: 1.5;
   padding: 12px 14px; border-radius: 0; outline: none; tab-size: 2; white-space: pre;
   overflow: auto; }
 .cfg-text:focus { box-shadow: inset 0 2px 0 var(--blue); }

@@ -9,6 +9,12 @@
   <link rel="icon" href="{{ url_for('static', filename='logo/svg/mark.svg') }}">
   <link rel="stylesheet" href="{{ url_for('static', filename='css/main.css') }}">
   <link rel="stylesheet" href="{{ url_for('static', filename='css/vendor/xterm.css') }}">
+  <!-- theme: apply the saved light/dark choice before first paint (avoids a flash);
+       the toggle lives in the header and persists to localStorage (see app.js). -->
+  <script>
+    try { if (localStorage.getItem("ccflet_theme") === "light")
+            document.documentElement.classList.add("light"); } catch (e) {}
+  </script>
 </head>
 <body{% if embed %} class="embed"{% endif %}>
   {% if not embed %}
@@ -50,6 +56,21 @@
       <input type="text" id="opName" data-guipart="06" style="width:120px" placeholder="operator" title="your name (audited)">
       <!-- guiPart07 — live connection status -->
       <span class="conn" id="conn" data-guipart="07"><span class="dot"></span><span id="connText">connecting…</span></span>
+      <!-- guiPart120 — light/dark theme toggle (top-right). Choice persists per-browser
+           in localStorage; the head script applies it before first paint. The sun shows
+           in dark mode (click → light), the moon in light mode (click → dark). -->
+      <button class="theme-toggle" id="themeToggle" data-guipart="120" type="button"
+              title="Toggle light / dark theme" aria-label="Toggle light / dark theme">
+        <svg class="ico-sun" viewBox="0 0 24 24" width="18" height="18" aria-hidden="true"
+             fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+          <circle cx="12" cy="12" r="4.2"/>
+          <path d="M12 2.5v2.2M12 19.3v2.2M4.6 4.6l1.5 1.5M17.9 17.9l1.5 1.5M2.5 12h2.2M19.3 12h2.2M4.6 19.4l1.5-1.5M17.9 6.1l1.5-1.5"/>
+        </svg>
+        <svg class="ico-moon" viewBox="0 0 24 24" width="18" height="18" aria-hidden="true"
+             fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+          <path d="M21 12.8A9 9 0 1 1 11.2 3 7 7 0 0 0 21 12.8z"/>
+        </svg>
+      </button>
     </div>
   </header>
   {% endif %}

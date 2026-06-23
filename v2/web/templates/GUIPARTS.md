@@ -24,6 +24,7 @@ you like. The ids are not used by any logic — they're purely for navigation/re
 | guiPart08 | toast notifications |
 | guiPart09 | session dock (bottom drawer) |
 | guiPart10 | bottom command bar (session chips) |
+| guiPart120 | light/dark theme toggle (header, top-right) — numbered out-of-sequence to stay globally unique (base.html renders on every page) |
 
 ## Dashboard — `dashboard.html` (11–40)
 

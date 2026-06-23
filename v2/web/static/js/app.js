@@ -13,6 +13,19 @@
     if (saved) CCFlet.user.username = saved;
   } catch (e) {}
 
+  // ---- theme (light / dark) ----
+  // The <head> applies the saved choice before first paint (no flash); this just
+  // keeps <html>.light in sync. Persisted per-browser; the `storage` listener below
+  // syncs other tabs and the dashboard's node-detail iframes live on toggle.
+  CCFlet.applyTheme = function (theme) {
+    document.documentElement.classList.toggle("light", theme === "light");
+  };
+  CCFlet.toggleTheme = function () {
+    const next = document.documentElement.classList.contains("light") ? "dark" : "light";
+    CCFlet.applyTheme(next);
+    try { localStorage.setItem("ccflet_theme", next); } catch (e) {}
+  };
+
   // ---- api ----
   CCFlet.api = async function (url, method = "GET", body = null) {
     const opts = {
@@ -431,6 +444,12 @@
           (k === "sessions" && path.startsWith("/sessions")) ||
           (k === "config" && path.startsWith("/config")) ||
           (k === "help" && path.startsWith("/help"))) a.classList.add("active");
+    });
+    // theme toggle (header, top-right) + cross-tab/iframe sync
+    const themeBtn = document.getElementById("themeToggle");
+    if (themeBtn) themeBtn.addEventListener("click", CCFlet.toggleTheme);
+    window.addEventListener("storage", (e) => {
+      if (e.key === "ccflet_theme") CCFlet.applyTheme(e.newValue);
     });
     // operator name input
     const inp = document.getElementById("opName");
