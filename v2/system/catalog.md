@@ -21,6 +21,27 @@ table). The `extends:` id is what you put at the top of the Layer-3 file.
 | `sequences`     | `sequences`     | frozen | `domain/sequences.yaml`        | deploy / bring-up / tear-down order + invariants |
 | `gate-c`        | `gate.C`        | frozen | `domain/gates.py` (thresholds) | GATE C — the variant-B sensor/value check |
 | `gate-d`        | `gate.D`        | frozen | `domain/gates.py` (thresholds) | GATE D — link / peer liveness |
+| `docs`          | `docs`          | live   | `design/` tree (Help page)     | the app's generated front page + glossary, app-name relabeling |
+
+## Docs sub-part shape (the Help tree)
+
+The Help (`design/`) tree is the **shared engine reference**, so the build does **not**
+rename structural identifiers in it (`roleA` / `serviceA` / GATE A are literal code
+references there). Instead it generates an app-specific **front page + glossary**
+(`design/00-about.md`) that maps each engine key onto your labels, and relabels only the
+unambiguous **display name** across the tree. This part runs by default (no file needed);
+override it only to tune that behavior:
+
+```yaml
+extends: docs
+generate_about: true       # write design/00-about.md (app intro + key→label glossary)
+relabel_app_name: true     # swap the display app name across the tree (brand tokens stay)
+substitutions: {}          # extra literal from→to display-token pairs (advanced; verbatim)
+exclude: []                # design/ relpaths to leave exactly as the template
+```
+
+Regenerate just the Help tree on demand (after editing the spec labels or the source
+docs) without a full rebuild + gate: `./compile.sh --app apps/<name> docs`.
 
 ## Command item shape (action sub-parts)
 

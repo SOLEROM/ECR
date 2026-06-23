@@ -32,6 +32,7 @@ Run a range with `compile.sh`:
 ./compile.sh --app apps/<name> --from subparts --to app # edited sub-parts → just rebuild
 ./compile.sh --app apps/<name> --only params            # redraft params, then STOP to edit
 ./compile.sh --app apps/<name> scaffold gate-c          # dump a part default to edit
+./compile.sh --app apps/<name> docs                     # regenerate ONLY the Help tree (no gate)
 ./compile.sh --app apps/<name> check                    # did a human edit generated output?
 ./compile.sh --app apps/<name> status                   # per-stage status
 ```
@@ -133,6 +134,15 @@ Command buttons default `live`; gate rules + sequences default `frozen`.
 | `networks` sub-part | `networks/networks.yaml` | live |
 | `sequences` sub-part | `domain/sequences.yaml` | frozen |
 | `gate-*` sub-part `thresholds:` | `domain/gates.py` (patched) | frozen |
+| `app.*` names (+ optional `docs` sub-part) | `design/` Help tree — generated `00-about.md` + app-name relabel | live (labels) |
 
 Free-form gate `parse:`/`good:` logic is **flagged as a TODO** in the compile report,
 never silently guessed. `compile.sh check` warns if a human hand-edited any owned file.
+
+The **Help tree** (`design/`, served on the in-app Help page) is regenerated per app so
+it speaks the app's language, not the demo's: a generated front page (`design/00-about.md`)
+introduces the app and gives a **glossary** mapping each engine key (`roleA`, `serviceA`,
+GATE A…) onto your labels, and the display app name is relabeled across the tree. The
+shared engine reference docs keep their structural identifiers (they are literal code
+references). Tune via the `docs` sub-part (`catalog.md`), or refresh just the docs on
+demand with `compile.sh … docs`.

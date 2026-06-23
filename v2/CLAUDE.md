@@ -132,7 +132,7 @@ browser ──HTTP/WebSocket──► Flask + SocketIO (web/routes.py, core/sync
 | `streaming.py` | live `tail -F` → SocketIO rooms → xterm | I/O |
 | `mock_ssh.py` | **stateful simulated fleet** (for `--mock` and tests) | sim |
 | `events.py` `storage.py` `sync.py` | audit JSONL · session dirs/ZIP · multi-op rooms | I/O |
-| `docs.py` | read-only `design/` markdown tree for the **Help** page | pure |
+| `docs.py` | read-only `design/` markdown tree for the **Help** page (in a fork the tree is Compiler-generated — `emit_docs`/`CLAUDE_rebuild.md`) | pure |
 | `result.py` | shared `CommandResult` (paramiko-free, so pure modules can import it) | pure |
 
 `web/` = `routes.py` (REST + pages) + `templates/` (base, dashboard, node, sessions,

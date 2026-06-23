@@ -83,6 +83,15 @@ PARTS: Dict[str, Tuple[str, Dict[str, Any], str]] = {
          "thresholds": {"LINK_FRESH_MS": 1000, "SERVICEC_MIN_UP": 15}},
         "frozen",
     ),
+    "docs": (
+        "Help (design/) tree — generated front page + glossary, app-name relabeling",
+        {"extends": "docs",
+         "generate_about": True,    # write design/00-about.md (app intro + glossary)
+         "relabel_app_name": True,  # substitute the display app name across the tree
+         "substitutions": {},       # extra literal from->to display-token pairs (advanced)
+         "exclude": []},            # design/ relpaths to leave exactly as the template
+        "live",
+    ),
 }
 
 

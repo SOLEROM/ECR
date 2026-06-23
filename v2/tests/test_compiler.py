@@ -102,6 +102,76 @@ def test_build_writes_manifest_and_report(tmp_path):
     man, report = B.build(str(tmp_path), DEMO_PARAMS, {})
     assert "domain/identity.py" in man.owned and "fleet/fleet.yaml" in man.owned
     assert any("identity:" in line for line in report)
+    # the Help tree is regenerated too (front page owned)
+    assert "design/00-about.md" in man.owned
+
+
+# --- build: Help (design/) docs regeneration --------------------------------
+def _make_source_docs(tmp_path):
+    """A pristine 'template' design/ tree to transform from (no sibling identity.py →
+    `_template_app_name` falls back to the demo brand 'ccFleet')."""
+    src = tmp_path / "src_design"
+    src.mkdir()
+    (src / "00-README.md").write_text(
+        "---\ntitle: Overview\norder: 0\n---\n\n# ccFleet\n\n"
+        "ccFleet uses roleA and serviceA. Brand tokens /tmp/ccflet and CCFlet stay.\n",
+        encoding="utf-8")
+    (src / "07-health.md").write_text("# Gates\n\nroleA reachable.\n", encoding="utf-8")
+    return str(src)
+
+
+def test_emit_docs_generates_about_and_relabels(tmp_path):
+    src = _make_source_docs(tmp_path)
+    app = tmp_path / "app"
+    man = Manifest(app_dir=str(app))
+    B.emit_docs(str(app), DEMO_PARAMS, {}, man, [], source_design=src)
+
+    about = (app / "design" / "00-about.md").read_text()
+    assert "About WeatherCtl" in about
+    # glossary maps engine keys -> the spec's labels, keeping the engine key as a literal
+    assert "station" in about and "collector" in about and "humidity" in about
+    assert "`roleA`" in about
+    # reference docs: only the *display name* is relabeled
+    readme = (app / "design" / "00-README.md").read_text()
+    assert "WeatherCtl uses roleA and serviceA" in readme   # display name swapped
+    assert "roleA" in readme and "serviceA" in readme       # structural keys kept
+    assert "/tmp/ccflet" in readme and "CCFlet" in readme   # brand tokens kept
+    assert "ccFleet" not in readme                          # display name fully gone
+    assert {"design/00-about.md", "design/00-README.md",
+            "design/07-health.md"} <= set(man.owned)
+
+
+def test_emit_docs_is_idempotent(tmp_path):
+    src = _make_source_docs(tmp_path)
+    app = tmp_path / "app"
+    B.emit_docs(str(app), DEMO_PARAMS, {}, Manifest(app_dir=str(app)), [], source_design=src)
+    first = (app / "design" / "00-README.md").read_text()
+    B.emit_docs(str(app), DEMO_PARAMS, {}, Manifest(app_dir=str(app)), [], source_design=src)
+    assert (app / "design" / "00-README.md").read_text() == first
+
+
+def test_emit_docs_respects_subpart_flags(tmp_path):
+    src = _make_source_docs(tmp_path)
+    app = tmp_path / "app"
+    sub = {"docs": {"generate_about": False, "relabel_app_name": False,
+                    "exclude": ["07-health.md"]}}
+    B.emit_docs(str(app), DEMO_PARAMS, sub, Manifest(app_dir=str(app)), [], source_design=src)
+    assert not (app / "design" / "00-about.md").exists()       # about suppressed
+    readme = (app / "design" / "00-README.md").read_text()
+    assert "ccFleet" in readme and "WeatherCtl" not in readme  # relabel off
+    assert not (app / "design" / "07-health.md").exists()      # excluded
+
+
+def test_docs_subcommand_regenerates(tmp_path):
+    from compiler import cli
+    app = tmp_path / "app"
+    (app / "system").mkdir(parents=True)
+    (app / "system" / "layer2.params.yaml").write_text("app:\n  name: DocApp\n",
+                                                       encoding="utf-8")
+    assert cli.main(["--app", str(app), "docs"]) == 0
+    about = (app / "design" / "00-about.md")
+    assert about.exists() and "About DocApp" in about.read_text()
+    assert "design/00-about.md" in Manifest.load(str(app)).owned
 
 
 # --- manifest: drift detection ----------------------------------------------
@@ -134,6 +204,8 @@ def test_catalog_parts_have_defaults():
     desc, body, mode = catalog.part_default("gate-c")
     assert mode == "frozen" and body["extends"] == "gate.C"
     assert "sequences" in catalog.PARTS and "host-actions" in catalog.PARTS
+    ddesc, dbody, dmode = catalog.part_default("docs")
+    assert dbody["extends"] == "docs" and dbody["generate_about"] is True
 
 
 # --- pipeline range selection -----------------------------------------------

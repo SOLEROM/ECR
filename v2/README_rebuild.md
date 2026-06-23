@@ -37,9 +37,10 @@ $EDITOR apps/myapp/system/layer1.dream.md                # write the dream
 ./compile.sh --app apps/myapp --from dream --to app
 ```
 
-Other commands: `scaffold <part>` (dump a sub-part default to edit), `check` (warn if a
-human hand-edited generated output), `status` (per-stage state). Forks live in `apps/`
-(git-ignored).
+Other commands: `scaffold <part>` (dump a sub-part default to edit), `docs` (regenerate
+just the **Help/`design/` tree** on demand — app front page + glossary + app-name
+relabel, no gate), `check` (warn if a human hand-edited generated output), `status`
+(per-stage state). Forks live in `apps/` (git-ignored).
 
 ## Docs
 

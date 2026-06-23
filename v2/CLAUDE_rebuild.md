@@ -29,9 +29,9 @@ hand-editing generated output (`compile.sh check` flags that).
 ## 2. The three stages (the pipeline)
 
 ```
-layer1.dream.md  --distill-->  layer2.params.yaml          (LLM-creative)
-                 --expand --> layer3.subparts/*.yaml        (LLM-creative)
-                 --build  --> config roots + domain/ + fences (deterministic; verified)
+layer1.dream.md  --distill-->  layer2.params.yaml                 (LLM-creative)
+                 --expand --> layer3.subparts/*.yaml               (LLM-creative)
+                 --build  --> config roots + domain/ + fences + Help tree (deterministic; verified)
 ```
 
 Creativity concentrates **early** (distill/expand draft editable YAML you correct);
@@ -49,6 +49,7 @@ else in `build` is deterministic.
 | the `domain/` pack — `gates.py` · `mock_rules.py` · `sequences.yaml` · `identity.py` | the Compiler | **Yes**, whole files |
 | the config roots — `fleet/` · `profiles/` · `commands/` · `networks/` | the Compiler (the `live` items) | **Yes** |
 | fenced label regions — `<!-- GEN:identity --> … <!-- /GEN -->` in templates | the Compiler | **Yes** (region only) |
+| the Help tree — `design/` (served on the Help page) | the Compiler (`emit_docs`) | **Yes** — generated `00-about.md` + glossary; app-name **relabel only** (the reference docs are the shared engine, so structural keys `roleA`/`serviceA`/GATE A stay) |
 
 **Labels are data; identifiers + brand tokens stay.** Operator-facing names come from
 the spec; `ccflet` / `CCFlet` / `CCFLET_` / `/tmp/ccflet` / `X-CCFlet-User` are
@@ -67,7 +68,7 @@ Compiler's job is to re-emit both halves together.
 | `spec.py` | read/write the wish-list layers + the `build.yaml` **status book** (approved/draft/stale) | mostly pure |
 | `stages.py` | **distill** (dream→params) + **expand** (params→sub-parts): LLM call **with an offline heuristic fallback** | mixed |
 | `llm.py` | LLM backend: `claude` (headless `claude -p`) \| `offline` (deterministic, network-free) | I/O |
-| `build.py` | the **deterministic emit**: params+sub-parts → identity/fleet/commands/networks/sequences + threshold patch + compile report | **pure** transform |
+| `build.py` | the **deterministic emit**: params+sub-parts → identity/fleet/commands/networks/sequences + threshold patch + the **Help tree** (`emit_docs`) + compile report | **pure** transform |
 | `gate.py` | the **acceptance gate**: `pytest` + `--mock` boot + `--dry-run`, driven over HTTP on an ephemeral port | I/O |
 | `manifest.py` | `.compiler-manifest.json` — owned paths + content hashes; `check` = drift detection | pure |
 | `catalog.py` | the overridable sub-part defaults (machine source for `scaffold`; mirrors `system/catalog.md`) | pure |
@@ -141,6 +142,7 @@ report, never guessed — systemPlan §6).
 | add an overridable sub-part | `catalog.py` (`PARTS`) + an `emit_*` in `build.py` + a row in `system/catalog.md` | `tests/test_compiler.py` |
 | change what `build` emits for an existing part | `build.py` (`emit_identity`/`emit_fleet`/`emit_commands`/…) | unit test + a real fork build |
 | add a config root to the emit | `build.py` (a new `emit_*`, record it in the manifest) | fork build + `check` |
+| change how the **Help tree** is regenerated | `build.py` (`emit_docs` / `_about_markdown`) + the `docs` part in `catalog.py` | `tests/test_compiler.py::test_emit_docs_*`; refresh on demand with `compile.sh … docs` |
 | change a gate check at build time | a `gate-*` sub-part `thresholds:` → `build.patch_gate_thresholds` (numeric only); free-form logic is a TODO for LLM codegen into `domain/gates.py` | the gate |
 | improve distill/expand drafts | `stages.py` (the heuristic and/or the `_*_PROMPT`) | `tests/test_compiler.py::test_offline_distill_*` |
 | add an LLM provider | `llm.py` (`resolve` + `complete`) | offline still must work |
@@ -180,4 +182,8 @@ apps/tmp --from subparts --to app` and confirm the gate stays green → `rm -rf 
   generation as a pure transform (systemPlan §12).
 - **LLM gate codegen** — turn free-form `parse:`/`good:` prose into verified
   `domain/gates.py`, with the gate as the acceptance oracle and a bounded repair loop.
+- **Richer per-app Help docs** — `emit_docs` today generates the `00-about.md` front
+  page + glossary and relabels the display name; the engine reference docs stay shared
+  (structural keys are literal there). Authoring/removing whole per-app doc *pages* from
+  the spec (vs relabel) is the next step (likely LLM-assisted, gated like gate codegen).
 - **`--check` in CI** + a small in-app **Build** page (systemPlan Phase 4).

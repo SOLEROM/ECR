@@ -5,6 +5,7 @@ Subcommands:
   (default)            run the pipeline:  --from/--to/--only over an app's system/
   new <name>           fork the template into apps/<name>/
   scaffold <part>      dump a catalog part's default as an editable Layer-3 file
+  docs                 regenerate ONLY the Help (design/) tree, on demand (no gate)
   check                manifest drift check (did a human edit generated output?)
   status               print the build.yaml stage statuses
 """
@@ -16,6 +17,7 @@ import sys
 import yaml
 
 from . import STAGES, fork, pipeline, spec, catalog
+from . import build as buildmod
 from .manifest import Manifest
 
 TEMPLATE_DIR = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
@@ -53,6 +55,30 @@ def cmd_scaffold(args) -> int:
     header = f"# layer3.subparts/{args.part}.yaml — {desc} (mode default: {mode})"
     path = spec.write_subpart(system_dir, args.part, body, header=header)
     print(f"scaffolded {os.path.relpath(path)}  (edit it, then rebuild)")
+    return 0
+
+
+def cmd_docs(args) -> int:
+    """Regenerate just the Help (``design/``) tree on demand — the cheap path to refresh
+    the docs after editing the spec labels or the template's source docs, without a full
+    rebuild + acceptance gate. Merges into the existing manifest (keeps other owned
+    files); the docs don't affect the gate, so it is skipped."""
+    app_dir = _app_dir(args)
+    system_dir = os.path.join(app_dir, "system")
+    try:
+        params = spec.read_params(system_dir)
+    except spec.SpecError as e:
+        print(f"error: {e}", file=sys.stderr)
+        return 1
+    subparts = spec.read_subparts(system_dir)
+    man = Manifest.load(app_dir)               # merge: preserve identity/fleet/… ownership
+    report: list = []
+    buildmod.emit_docs(app_dir, params, subparts, man, report)
+    man.save(meta={"docs": "regenerated"})
+    for line in report:
+        print(line)
+    if not man.owned:
+        print("note: no other generated files owned yet — run a full build to verify.")
     return 0
 
 
@@ -125,6 +151,7 @@ def main(argv=None) -> int:
     ps = sub.add_parser("scaffold", help="dump a catalog part default as a Layer-3 file")
     ps.add_argument("part", nargs="?")
 
+    sub.add_parser("docs", help="regenerate ONLY the Help (design/) tree, on demand")
     sub.add_parser("check", help="manifest drift check")
     sub.add_parser("status", help="print build.yaml stage statuses")
 
@@ -133,6 +160,8 @@ def main(argv=None) -> int:
         return cmd_new(args)
     if args.cmd == "scaffold":
         return cmd_scaffold(args)
+    if args.cmd == "docs":
+        return cmd_docs(args)
     if args.cmd == "check":
         return cmd_check(args)
     if args.cmd == "status":
