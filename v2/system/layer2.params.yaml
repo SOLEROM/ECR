@@ -1,0 +1,46 @@
+# layer2.params.yaml — the few global facts true for the whole app (Layer 2).
+#
+# Drafted by `distill` from the dream, then corrected by you. This demo reproduces the
+# default ccFleet app faithfully, so `compile.sh --from subparts --to app` rebuilds an
+# app that still passes the acceptance gate. Mark it `approved` in build.yaml once happy.
+app:
+  name: ccFleet                 # display name (a bare token); brand *tokens* in code stay
+  fleet_name: example-fleet     # the fleet inventory name (defaults to slug(name))
+  tagline: "Command & Control"
+  brand: { lead: cc, accent: Fleet }     # wordmark split: cc·Fleet
+
+  node: { count: 5, represents: "a fleet node" }
+  roles: { roleA: roleA, roleB: roleB }            # roleB may be null for single-host nodes
+  services: { serviceA: serviceA, serviceB: serviceB, serviceC: serviceC }
+  variants: { A: "variant A", B: "variant B" }     # may be a single variant
+  gates: { A: reach, B: proc, C: check, D: link }  # omit a key to drop that gate
+
+  defaults:
+    variant: A
+    algo: default
+    roleA_user: user
+    roleB_user: root
+    key_file: ~/.ssh/id_rsa
+    deploy_root: /srv/ccfleet/roleA
+    ssh_opts: "-o BatchMode=yes -o StrictHostKeyChecking=no -o ConnectTimeout=5"
+    stagger: 0.5
+    roleB_host_suffix: ".2"
+
+  # variant-derived param sets (addr may contain {SUBNET}, replaced per node)
+  variant_params:
+    A: { addr: "10.0.0.255", launcher: "variantA.run", flag: "" }
+    B: { addr: "{SUBNET}.255", launcher: "variantB.run", flag: "--variant-flag" }
+
+  # seed inventory — REAL hosts/subnets are LIVE data, edited on the app's Config page.
+  nodes_seed:
+    - { name: node1, id: 1, host: 10.0.0.101, subnet: 10.1.1 }
+    - { name: node2, id: 2, host: 10.0.0.102, subnet: 10.1.2 }
+    - { name: node3, id: 3, host: 10.0.0.103, subnet: 10.1.3 }
+    - { name: node4, id: 4, host: 10.0.0.104, subnet: 10.1.4 }
+    - { name: node5, id: 5, host: 10.0.0.105, subnet: 10.1.5 }
+
+  # dashboard selection groups (one button each on the Select line)
+  groups:
+    group1: [node1, node2, node3]
+    group2: [node4, node5]
+    group3: [node1, node3, node5]

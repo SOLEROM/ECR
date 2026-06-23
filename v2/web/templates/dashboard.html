@@ -56,9 +56,10 @@
     <div class="card-body">
       <!-- guiPart25 — health gates (A–D); guiPart26 = one gate cell -->
       <div class="gates" data-guipart="25">
-        {% for g,lbl in [('A','A·reach'),('B','B·proc'),('C','C·check'),('D','D·link')] %}
-        <div class="gate na" data-guipart="26" data-gate="{{g}}" title="{{lbl}}"><div class="g">{{lbl}}</div><div class="v">—</div></div>
-        {% endfor %}
+        {# GEN:identity — gate labels from domain.identity (keys A–D stay) #}
+        {% for g in identity.gates %}{% set lbl = g.key ~ '·' ~ g.label %}
+        <div class="gate na" data-guipart="26" data-gate="{{g.key}}" title="{{lbl}}"><div class="g">{{lbl}}</div><div class="v">—</div></div>
+        {% endfor %}{# /GEN #}
       </div>
       <!-- guiPart27 — metrics (service up/down pills + counters); guiPart28 = a pill -->
       <div class="metrics" data-guipart="27">

@@ -8,3 +8,13 @@ __pycache__/
 htmlcov/
 # project venv lives at .venv/ in the project root
 .venv/
+
+# Config-page backups — the config store snapshots the prior file to <root>/.bak/
+# (fleet/.bak/, commands/.bak/, profiles/.bak/, networks/.bak/) on every save.
+.bak/
+
+# Rebuild system (the Compiler) — generated artifacts
+# (gitignore has no inline comments: each pattern must be on its own line)
+apps/
+.compiler-manifest.json
+compile-report.md

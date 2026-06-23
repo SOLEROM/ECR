@@ -1,0 +1,9 @@
+# layer3.subparts/networks.yaml — base-station connectivity LEDs (top bar).
+# A `live` sub-part: the build writes networks/networks.yaml, editable on the Config page.
+extends: networks
+poll_interval: 5        # seconds between connectivity checks
+ping_timeout: 1         # seconds to wait for a ping reply
+links:
+  - { key: link1, label: Gateway,     host: 10.0.0.1,  hint: the gateway / router the base station is connected to }
+  - { key: link2, label: Upstream,    host: 10.0.0.2,  hint: upstream reachability target }
+  - { key: link3, label: Peer device, host: 10.0.0.50, hint: a peer device that must be reachable before a run }

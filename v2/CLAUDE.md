@@ -1,12 +1,20 @@
-# CLAUDE.md — working on `ccFleet` (a generic fleet Command & Control template)
+# CLAUDE.md — working on `ccFleet` (the **template application**)
+
+> **This repo has two parts.** This file is the engineering brief for **part 1 — the
+> ccFleet template application** (the SSH command-&-control app itself). **Part 2 — the
+> Rebuild system (the Compiler)** that forks this template and builds new apps from a
+> wish list has its own brief: **`CLAUDE_rebuild.md`**. Doc indexes: `README_template.md`
+> and `README_rebuild.md`, linked from the short root `README.md`.
 
 This is the engineering brief for the **`ccFleet`** stack, which lives **at the project
 root** (this directory — `ECR/v2/`; `app.py`, `core/`, `web/`, … are direct children).
 Read it before changing code. It explains *what this is, how it's shaped, where to make
-changes, and what must not break.* It complements — does not repeat — two docs:
+changes, and what must not break.* It complements — does not repeat — these docs:
 
 - `plan1.md` — the architecture overview + the design principles (P1–P8).
 - `design/*.md` — the per-subsystem reference (also served on the **Help** page).
+- `CLAUDE_rebuild.md` — the brief for the build system that **generates** an app from
+  `system/` (the `domain/` pack below is its regenerate target).
 
 > The source code is the truth. When a fact here disagrees with the code, fix one of
 > them — don't guess.
@@ -67,7 +75,7 @@ python3 -m venv .venv && .venv/bin/pip install -r requirements.txt   # one-time
 .venv/bin/python app.py --mock          # simulated fleet → http://127.0.0.1:5000
 .venv/bin/python app.py                 # real fleet (edit fleet/fleet.yaml)
 .venv/bin/python app.py --dry-run       # print the real SSH commands, run nothing
-.venv/bin/python -m pytest                  # 181 tests, no network
+.venv/bin/python -m pytest                  # 201 tests, no network
 .venv/bin/python -m pytest --cov=core       # coverage
 ```
 
@@ -111,9 +119,10 @@ browser ──HTTP/WebSocket──► Flask + SocketIO (web/routes.py, core/sync
 | `fleet.py` | inventory model + per-node **param derivation** (variant) | **pure** |
 | `profiles.py` | action/collector/log schema + `{param}` render + `via` jump | **pure** |
 | `supervisor.py` | daemon start/stop/status **command synthesis** + parse | **pure** |
-| `status.py` | collector **parsers** → `NodeStatus` → **GATE A–D** | **pure** |
+| `status.py` | **generic** fold: `NodeStatus` + `build_status` + `overall_gate` (parsers/GATE rules/thresholds now live in `domain/gates.py`; back-compat shim re-exports them) | **pure** |
+| `sequences.py` | **generic** sequence engine: reads `domain/sequences.yaml`, extracts ordered steps + enforces ordering invariants | **pure** |
 | `transfer.py` | rsync / scp -O command synthesis + subprocess runner | mostly pure |
-| `orchestrator.py` | fan-out, **variant-aware sequences**, conn pool, poller, **`run_custom`** | I/O |
+| `orchestrator.py` | fan-out, **variant-aware sequences** (from `domain/sequences.yaml`), conn pool, poller, **`run_custom`** | I/O |
 | `commands.py` | **operator command catalog** schema (`commands/commands_{host,roleA,roleB}.yaml`) + `{param}` render (P8) | **pure** |
 | `networks.py` | **base-station link** schema (`networks/networks.yaml`) — the top-bar LEDs (P8) | **pure** |
 | `net_monitor.py` | **ping poller** for the off-fleet links → `net_status` broadcast (sim under mock/dry) | I/O |
@@ -135,6 +144,26 @@ composition root + `CCFletApp` facade + CLI.
 sequencing order, command synthesis, parsing, gating) is pure and unit-tested with no
 network. The I/O shells are thin and exercised by the `--mock` boot. Keep new logic on
 the pure side when you can.
+
+**The `domain/` pack (the per-app, spec-derived logic).** The slice of behavior that
+changes per app is isolated in `domain/` so the Rebuild system (part 2) can regenerate
+it as whole files while the generic engine (`core/`, `web/`) stays ≈ the template:
+
+| `domain/` file | Owns | Paired with |
+|---|---|---|
+| `gates.py` | collector **parsers** + **GATE A–D rules** + **thresholds** + log tags | `core/status.py` (the fold) |
+| `mock_rules.py` | the `--mock` **producer** side of the string contract (daemon names, command routing, collector/probe text) | `gates.py` parsers — **keep both in sync** |
+| `sequences.yaml` | variant-aware deploy/bring-up/tear-down **step lists** + invariants | `core/sequences.py` (reads + enforces) |
+| `identity.py` | operator-facing **labels** (app name, brand wordmark, gate/role/service labels) | template `<!-- GEN:identity -->` fences + a Flask context processor (`identity`) |
+
+The `mock_rules.py ↔ gates.py` string contract is the sharpest edge (CLAUDE.md §7): a
+renamed log tag/probe must change on **both** sides. They're co-located in `domain/` so
+a regenerate fixes both at once. **Brand tokens stay** (`ccflet`/`CCFlet`/`/tmp/ccflet`/…).
+
+> **Editing `domain/` by hand vs rebuilding.** In *this* template repo, `domain/` holds
+> the default ccFleet behavior — edit it directly like any module. In a **forked app** it
+> is generated from `system/`; change the spec and rebuild instead (see
+> **`CLAUDE_rebuild.md`** for the Compiler, the acceptance gate, and the manifest).
 
 ---
 
@@ -300,9 +329,11 @@ just `pytest`.
 | change what hot-reload does | `CCFletApp.reload_config` (app.py) + the per-module `reload_*` hooks | reload test + `--mock` |
 | add/adjust a node action (e.g. a new daemon) | `profiles/{roleA,roleB}.yaml` (+ `supervisor` if a new kind) | teach `mock_ssh.py` the new command; add a test |
 | add a fleet field / derived param | `fleet.py` (`Node`, `params`) | `tests/test_fleet.py` |
-| change a GATE rule / threshold | `status.py` (constants + `compute_gates`) | `tests/test_status_parsers.py` golden fixtures |
-| add a new collector/parser | `profiles` (collector) + `status.py` (parser) + `orchestrator._collect`/`poll_node` | fixture test + the mock |
-| add a sequence | `orchestrator.py` (`bring_up`/`tear_down` pattern, keep the node lock + ordering) | `tests/test_orchestrator.py` |
+| change a GATE rule / threshold | `domain/gates.py` (constants + `compute_gates`) — keep the `domain/mock_rules.py` producer in sync | `tests/test_status_parsers.py` golden fixtures |
+| add a new collector/parser | `profiles` (collector) + `domain/gates.py` (parser) + `domain/mock_rules.py` (producer) + `orchestrator._collect`/`poll_node` | fixture test + the mock |
+| change deploy/bring-up/tear-down **order** | `domain/sequences.yaml` (step lists + invariants); engine enforces order generically | `tests/test_sequences.py` + `tests/test_orchestrator.py` |
+| build/rebuild an app from a wish list | the Rebuild system — `system/` (the spec) → `./compile.sh …`; see **`CLAUDE_rebuild.md`** | the acceptance gate (`pytest` + `--mock` + `--dry-run`) |
+| relabel the app (name / brand / gate labels) | in this template: `domain/identity.py`; in a fork: `system/layer2.params.yaml` + rebuild | `--mock` (title/wordmark/gate labels) |
 | add a REST endpoint / page | `web/routes.py` (+ template + `app.js`) | curl smoke + `--mock` |
 | change deploy transport | `transfer.py` (cmd synthesis) | `tests/test_transfer.py` |
 | relabel / restyle a UI part | find its `guiPartNN` (see `web/templates/GUIPARTS.md`) | `--mock` click-through |

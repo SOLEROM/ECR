@@ -316,6 +316,14 @@ def create_app(fleet_path=None, profiles_dir=None, commands_dir=None, runs_dir=N
     app.config["SECRET_KEY"] = os.urandom(24)
     # cap request bodies — config saves carry whole files; nothing legitimate is big.
     app.config["MAX_CONTENT_LENGTH"] = 2 * 1024 * 1024  # 2 MB
+
+    # operator-facing labels (the spec-derived domain identity) are available to
+    # every template as `identity`; the load-bearing brand *tokens* stay in code.
+    from domain.identity import IDENTITY
+
+    @app.context_processor
+    def _inject_identity():
+        return {"identity": IDENTITY}
     socketio = SocketIO(app, cors_allowed_origins="*", async_mode="threading")
     sync = init_sync(socketio)
 

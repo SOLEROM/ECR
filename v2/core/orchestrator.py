@@ -27,6 +27,7 @@ from .result import CommandResult
 from .supervisor import Supervisor
 from . import transfer as T
 from . import status as S
+from . import sequences as SEQ
 
 MAX_FANOUT = 10
 HEALTH_WAIT_TIMEOUT = 15.0
@@ -91,6 +92,11 @@ class Orchestrator:
         self.events = event_stream
         self.sync = sync_manager
         self.dry_run = dry_run
+        # variant-aware ordered sequences come from the domain pack
+        # (domain/sequences.yaml); their ordering invariants are checked here so a
+        # mis-ordered spec fails fast rather than running a bad bring-up.
+        self.sequences = SEQ.load()
+        SEQ.validate(self.sequences)
         self._poll_thread: Optional[threading.Thread] = None
         self._poll_stop = threading.Event()
         self._last_gates: Dict[str, Dict] = {}
@@ -392,26 +398,19 @@ class Orchestrator:
 
     def deploy(self, node_name: str, build: bool = False,
                user: Optional[dict] = None) -> List[ActionResult]:
-        steps = ["deploy_serviceB", "deploy_serviceA"] + (["serviceA_build"] if build else [])
+        steps = SEQ.deploy_steps(self.sequences, build=build)
         with self._node_lock(node_name):
-            return self._run_sequence("deploy", node_name,
-                                      [("roleA", s) for s in steps], user)
+            return self._run_sequence("deploy", node_name, steps, user)
 
     def bring_up(self, node_name: str, user: Optional[dict] = None) -> List[ActionResult]:
         variant = self.fleet.node_variant(node_name)
-        seq: List = []
-        if variant == "B":
-            seq.append(("roleB", "serviceC_start", "serviceC_status"))
-        seq.append(("roleA", "serviceA_start", "serviceA_status"))
-        seq.append(("roleA", "serviceB_start", "serviceB_status"))
+        seq = SEQ.bring_up_steps(self.sequences, variant)
         with self._node_lock(node_name):
             return self._run_guarded_sequence("bring_up", node_name, seq, user)
 
     def tear_down(self, node_name: str, user: Optional[dict] = None) -> List[ActionResult]:
         variant = self.fleet.node_variant(node_name)
-        steps = [("roleA", "serviceB_stop"), ("roleA", "serviceA_stop")]
-        if variant == "B":
-            steps.append(("roleB", "serviceC_stop"))
+        steps = SEQ.tear_down_steps(self.sequences, variant)
         with self._node_lock(node_name):
             return self._run_sequence("tear_down", node_name, steps, user)
 

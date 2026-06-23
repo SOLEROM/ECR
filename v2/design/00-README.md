@@ -88,5 +88,8 @@ and tell us which one to turn.
 
 The **code is the truth**; these docs explain *intent*. When a doc disagrees with
 the code, fix one of them — don't guess. Deeper references live beside the app:
-`plan1.md` (the implementation plan), `README.md` (quick start), and `CLAUDE.md`
-(the engineering brief for changing this code).
+`plan1.md` (the implementation plan), `README_template.md` (quick start), and
+`CLAUDE.md` (the engineering brief for changing this code). These `design/` docs are
+the **template application's** subsystem reference; the separate **Rebuild system**
+that generates an app from a wish list is documented in `README_rebuild.md` /
+`CLAUDE_rebuild.md`.

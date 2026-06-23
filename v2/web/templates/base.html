@@ -3,7 +3,9 @@
 <head>
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
-  <title>{% block title %}ccFleet{% endblock %} · Command & Control</title>
+  <!-- GEN:identity — title/brand come from domain.identity (spec-derived labels) -->
+  <title>{% block title %}{{ identity.app_name }}{% endblock %} · {{ identity.tagline }}</title>
+  <!-- /GEN -->
   <link rel="icon" href="{{ url_for('static', filename='logo/svg/mark.svg') }}">
   <link rel="stylesheet" href="{{ url_for('static', filename='css/main.css') }}">
   <link rel="stylesheet" href="{{ url_for('static', filename='css/vendor/xterm.css') }}">
@@ -13,7 +15,7 @@
   <header class="header">
     <!-- guiPart01 — brand / logo (links home). Neutral placeholder mark: replace the
          SVG + wordmark with your project's brand. -->
-    <a class="logo" href="/" id="guiPart01" data-guipart="01" title="ccFleet — Command &amp; Control">
+    <a class="logo" href="/" id="guiPart01" data-guipart="01" title="{{ identity.app_name }} — {{ identity.tagline }}">
       <svg class="logo-mark" viewBox="0 0 32 24" width="30" height="22" aria-hidden="true">
         <!-- three connected nodes — a neutral "fleet" mark -->
         <line class="logo-link" x1="6" y1="17" x2="16" y2="6"/>
@@ -23,7 +25,9 @@
         <circle class="logo-node" cx="6" cy="17" r="3.4"/>
         <circle class="logo-node" cx="26" cy="17" r="3.4"/>
       </svg>
-      <span class="logo-text">cc<span class="logo-accent">Fleet</span></span>
+      <!-- GEN:identity — wordmark (lead + accented tail) from domain.identity -->
+      <span class="logo-text">{{ identity.brand_lead }}<span class="logo-accent">{{ identity.brand_accent }}</span></span>
+      <!-- /GEN -->
     </a>
     <!-- guiPart02 — main navigation -->
     <nav class="nav" id="guiPart02" data-guipart="02">

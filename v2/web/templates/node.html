@@ -27,9 +27,10 @@
         </div>
         <!-- guiPart45 — health gates (A–D) -->
         <div class="gates" id="gates" data-guipart="45" style="margin-top:14px">
-          {% for g,lbl in [('A','A·reach'),('B','B·proc'),('C','C·check'),('D','D·link')] %}
-          <div class="gate na" data-gate="{{g}}"><div class="g">{{lbl}}</div><div class="v">—</div></div>
-          {% endfor %}
+          {# GEN:identity — gate labels from domain.identity (keys A–D stay) #}
+          {% for g in identity.gates %}{% set lbl = g.key ~ '·' ~ g.label %}
+          <div class="gate na" data-gate="{{g.key}}"><div class="g">{{lbl}}</div><div class="v">—</div></div>
+          {% endfor %}{# /GEN #}
         </div>
         <!-- guiPart46 — metrics (service pills + counters) -->
         <div class="metrics" id="metrics" data-guipart="46" style="margin-top:12px">

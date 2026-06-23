@@ -16,18 +16,19 @@ check/serviceC collectors start producing fresh lines, and the dashboard gates g
 green — exactly as a real bring-up would look.
 """
 
-import re
 import threading
 import time
 from typing import Dict, Iterator, List, Optional
 
 from .result import CommandResult
+# the per-app command rules + collector/probe text generators (the producer side of
+# the mock↔status string contract) live in the domain pack so the Compiler can
+# regenerate them with the matching parsers in domain.gates.
+from domain import mock_rules as MR
 
-# daemon name (as embedded in /tmp/ccflet/<name>.{pid,log} and systemd units) →
-# internal state key. The names line up, so this is effectively an identity map.
-_DAEMON_KEY = {"serviceA": "serviceA", "serviceB": "serviceB", "serviceC": "serviceC"}
-_PIDFILE_RE = re.compile(r"/tmp/ccflet/([\w.-]+)\.(?:pid|log)")
-_SYSTEMD_RE = re.compile(r"systemctl\s+(start|stop)\s+(\S+)")
+# re-exported for any caller that referenced the old module-level constants
+_DAEMON_KEY = MR.DAEMON_KEY
+_SYSTEMD_RE = MR.SYSTEMD_RE
 
 
 class MockFleetState:
@@ -41,7 +42,7 @@ class MockFleetState:
         # per-node service state: {node: {serviceA/serviceB/serviceC: {up,pid,source}}}
         self.daemons: Dict[str, Dict[str, dict]] = {
             n.name: {k: {"up": False, "pid": None, "source": None}
-                     for k in ("serviceA", "serviceB", "serviceC")}
+                     for k in MR.DAEMONS}
             for n in fleet.nodes
         }
         self.deployed: Dict[str, bool] = {n.name: False for n in fleet.nodes}
@@ -62,7 +63,7 @@ class MockFleetState:
             self.daemons = {
                 name: self.daemons.get(name) or {
                     k: {"up": False, "pid": None, "source": None}
-                    for k in ("serviceA", "serviceB", "serviceC")}
+                    for k in MR.DAEMONS}
                 for name in fresh
             }
             self.deployed = {name: self.deployed.get(name, False) for name in fresh}
@@ -97,83 +98,29 @@ class MockFleetState:
     def is_up(self, node: str, daemon: str) -> bool:
         return self.daemons[node][daemon]["up"]
 
-    # ---- simulated peers / collectors ------------------------------------
+    # ---- simulated peers / collectors (domain rules in domain/mock_rules.py) --
+    # These thin wrappers delegate to the domain pack so the emitted collector/probe
+    # strings stay paired with the parsers in domain.gates (the string contract).
     def peer_ids(self, node: str) -> List[int]:
-        """Peers this node hears: other reachable nodes with serviceA up, **same variant**.
-
-        Two nodes in different variants form one-way links (different egress / broadcast
-        address), so they don't hear each other — modeling the physical constraint the
-        per-node-variant mechanism hands to the operator.
-        """
-        if not self.is_up(node, "serviceA") or node in self.offline:
-            return []
-        my_variant = self.node_variant(node)
-        peers = []
-        for other in self.fleet.nodes:
-            if other.name == node or other.name in self.offline:
-                continue
-            if self.is_up(other.name, "serviceA") and self.node_variant(other.name) == my_variant:
-                peers.append(other.id)
-        return sorted(peers)
+        return MR.peer_ids(self, node)
 
     def links_json(self, node: str) -> str:
-        ids = self.peer_ids(node)
-        me = self.fleet.get(node)
-        now = time.time()
-        peers = {}
-        for i, pid in enumerate(ids):
-            age = 40 + ((pid * 37 + int(now * 5)) % 220)  # < 1s, jitters over time
-            peers[str(pid)] = {"last_seen_unix": round(now - age / 1000, 3),
-                               "age_ms": age}
-        return '{"own_id": %d, "peers": %s}' % (
-            me.id, _json_obj(peers))
+        return MR.links_json(self, node)
 
     def links_log_tail(self, node: str, n: int = 200) -> str:
-        ids = self.peer_ids(node)
-        if not ids:
-            return ""
-        lines = []
-        now = time.time()
-        tick = int(now * 20)
-        for k in range(min(n, len(ids) * 4)):
-            pid = ids[k % len(ids)]
-            ts = time.strftime("%Y-%m-%dT%H:%M:%S", time.gmtime(now))
-            lines.append(
-                f'{ts}Z rx from={pid} bytes=214 '
-                f'msg="{{\\"type\\":\\"sync\\",\\"node_id\\":{pid},\\"seq\\":{tick - k}}}"'
-            )
-        return "\n".join(lines)
+        return MR.links_log_tail(self, node, n)
 
     def check_lines(self, node: str) -> str:
-        """serviceB.log tail: [CHECK] (path 1), plus [CHECK2] (path 2) in variant B."""
-        if not self.is_up(node, "serviceB") or node in self.offline:
-            return ""
-        now = time.time()
-        age = round(0.05 + (int(now * 3) % 30) / 100, 2)
-        lines = [f"[CHECK] value=3 age={age} unit=ok"]
-        if self.node_variant(node) == "B" and self.is_up(node, "serviceC"):
-            lines.append(f"[CHECK2] value=3 age={age} unit=ok")
-        return "\n".join(lines)
+        return MR.check_lines(self, node)
 
     def servicec_stats(self, node: str) -> str:
-        if not self.is_up(node, "serviceC") or node in self.offline:
-            return ""
-        n_peers = len(self.peer_ids(node))
-        now = int(time.time()) % 1000
-        up = 20
-        down = 20 * max(n_peers, 0)
-        signal = -68 - (hash(node) % 20)
-        return (f"+{now}s up={up} ({up}/s) down={down} ({down}/s) "
-                f"drop: bad_lan=0 loop={down} bad_air=0 self=0 "
-                f"err: tx=0 lan=0 signal={signal}dB")
+        return MR.servicec_stats(self, node)
 
     def probe_a_text(self, node: str) -> str:
-        return ("status/probeA:\n  PROBEA: READY"
-                if self.is_reachable(node) else "connection refused")
+        return MR.probe_a_text(self, node)
 
     def probe_b_text(self, node: str) -> str:
-        return ("status/probeB:\n  value: 3\n  PROBEB_OK"
-                if self.is_reachable(node) else "connection refused")
+        return MR.probe_b_text(self, node)
 
     def simulate_transfer(self, node: str, which: str) -> str:
         with self._lock:
@@ -183,11 +130,6 @@ class MockFleetState:
         return (f"sending incremental file list\npayload/{which}/\n"
                 f"sent 1,234,567 bytes  received 4,321 bytes  total size 1,250,000\n"
                 f"[mock] deployed {which} to {node}")
-
-
-def _json_obj(d: dict) -> str:
-    import json
-    return json.dumps(d)
 
 
 class MockSSHClient:
@@ -222,8 +164,7 @@ class MockSSHClient:
 
         # systemd unit probe (supervisor prefer_systemd)
         if command.startswith("systemctl cat"):
-            installed = self.state.systemd_serviceA and "serviceA" in command
-            return self._ok(command, code=0 if installed else 1)
+            return self._ok(command, code=0 if MR.systemd_installed(self.state, command) else 1)
 
         # systemd start/stop
         m = _SYSTEMD_RE.search(command)
@@ -263,26 +204,12 @@ class MockSSHClient:
                                     f"up pid={st['pid']} source={st['source']}")
                 return self._ok(command, "down")
 
-        # serviceA build
-        if "make" in command and "serviceA" in command:
-            self.state.built[self.node] = True
-            return self._ok(command, "cc ... serviceA.c -o serviceA\n[mock] build ok")
-
-        # roleB probes
-        if "probeA" in command:
-            return self._ok(command, self.state.probe_a_text(self.node))
-        if "probeB" in command:
-            return self._ok(command, self.state.probe_b_text(self.node))
-
-        # collectors / tails (non-streaming reads)
-        if "links.json" in command or ("serviceA.rx" in command and "tail" in command):
-            text = (self.state.links_json(self.node) if self.state.systemd_serviceA
-                    else self.state.links_log_tail(self.node))
+        # domain reads: serviceA build, roleB probes, collectors/tails — the
+        # command rules + emitted text live in domain/mock_rules.py (the producer
+        # side of the mock↔status string contract).
+        text = MR.domain_read(self.state, self.node, command)
+        if text is not None:
             return self._ok(command, text)
-        if "serviceB.log" in command and "tail" in command:
-            return self._ok(command, self.state.check_lines(self.node))
-        if "serviceC.log" in command and "tail" in command:
-            return self._ok(command, self.state.servicec_stats(self.node))
 
         # reachability probe / generic
         if command.strip() in ("true", "echo ccflet-ok") or command.startswith("uname"):
@@ -295,14 +222,7 @@ class MockSSHClient:
         return self._ok(command, f"[mock] ran on {self.node}: {first}")
 
     def _daemon_name(self, command: str) -> Optional[str]:
-        m = _PIDFILE_RE.search(command)
-        if m:
-            return _DAEMON_KEY.get(m.group(1))
-        # systemd-only stop without pidfile
-        m = _SYSTEMD_RE.search(command)
-        if m:
-            return _DAEMON_KEY.get(m.group(2).replace(".service", ""))
-        return None
+        return MR.daemon_name(command)
 
     # ---- streaming -------------------------------------------------------
     def exec_stream(self, command: str, stop_event: Optional[threading.Event] = None
@@ -310,10 +230,9 @@ class MockSSHClient:
         if not self.state.is_reachable(self.node):
             yield "[stream] no route to host"
             return
-        kind = ("servicec" if "serviceC.log" in command
-                else "check" if "serviceB.log" in command else "links")
+        kind = MR.stream_kind(command)
         while not (stop_event and stop_event.is_set()):
-            line = self._stream_line(kind)
+            line = MR.stream_line(self.state, self.node, kind)
             if line:
                 yield line
             # pace the synthetic stream
@@ -321,14 +240,6 @@ class MockSSHClient:
                 if stop_event and stop_event.is_set():
                     return
                 time.sleep(0.05)
-
-    def _stream_line(self, kind: str) -> str:
-        if kind == "servicec":
-            return self.state.servicec_stats(self.node)
-        if kind == "check":
-            return (self.state.check_lines(self.node).splitlines() or [""])[0]
-        rx = self.state.links_log_tail(self.node, n=1)
-        return rx.splitlines()[0] if rx else ""
 
     # ---- file ops (no-ops in mock) --------------------------------------
     def get_file(self, remote_path: str, local_path: str):

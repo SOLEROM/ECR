@@ -49,8 +49,9 @@ the real thing.
 | Full stack | `--mock` boot (manual / smoke) | `ssh_client`, `sync`, `streaming` shells |
 
 `tests/conftest.py` provides the shared `FLEET_DICT` fixture and `FakeSSH`. The
-suite is **~181 tests, no network** (incl. the config store, command catalog,
-networks/LED monitor, local exec, and Flask test-client route checks).
+suite is **~201 tests, no network** (incl. the config store, command catalog,
+networks/LED monitor, local exec, Flask test-client route checks, the generic
+sequence engine, and the Rebuild-system compiler transforms).
 
 ## Coverage posture
 

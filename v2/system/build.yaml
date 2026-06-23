@@ -1,0 +1,18 @@
+# system/build.yaml — Compiler pipeline control + per-stage status.
+# status: approved (you blessed it) · draft (Compiler-made) · stale (rebuild).
+# llm: auto | claude | offline  (which backend distill/expand use).
+#
+# This demo pins `offline` so a clean build is reproducible with no model in the loop;
+# set `auto` (or `claude`) in a real fork to let the LLM draft params/sub-parts from prose.
+app: ccfleet-demo
+llm: offline
+stages:
+  params:
+    artifact: layer2.params.yaml
+    status: approved        # hand-authored demo — locked against an accidental redistill
+  subparts:
+    artifact: layer3.subparts
+    status: approved
+  app:
+    artifact: ..
+    status: draft
