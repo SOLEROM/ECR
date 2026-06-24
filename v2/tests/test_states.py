@@ -147,7 +147,7 @@ def test_registry_missing_dir_is_empty(tmp_path):
 def test_registry_loads_shipped_dir():
     # structural, not name-pinned: the shipped states dir parses to ≥1 indicator.
     here = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
-    reg = StateRegistry(os.path.join(here, "networks"))
+    reg = StateRegistry(os.path.join(here, "yamls", "default", "networks"))
     assert reg.indicators and all(i.key and i.kind in ("ping", "cmd") for i in reg.indicators)
 
 

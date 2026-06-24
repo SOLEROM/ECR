@@ -74,7 +74,7 @@ def test_catalog_loads_split_shipped_files():
     file each command lives in decides where it runs. Asserted structurally (by on/role,
     not by button name) so a fork that renames its buttons still exercises the mechanism."""
     here = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
-    cat = CommandCatalog(os.path.join(here, "commands"))
+    cat = CommandCatalog(os.path.join(here, "yamls", "default", "commands"))
     cmds = cat.all()
     assert cmds, "shipped catalog should not be empty"
     roleA = [c for c in cmds if c.on == "remote" and c.role == "roleA"]

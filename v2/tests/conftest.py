@@ -36,7 +36,7 @@ def fleet():
 
 @pytest.fixture
 def profiles_dir():
-    return os.path.join(CC_ROOT, "profiles")
+    return os.path.join(CC_ROOT, "yamls", "default", "profiles")
 
 
 @pytest.fixture

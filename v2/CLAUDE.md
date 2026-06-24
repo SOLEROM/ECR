@@ -73,13 +73,13 @@ first run):
 # from the project root (ECR/v2/)
 python3 -m venv .venv && .venv/bin/pip install -r requirements.txt   # one-time
 .venv/bin/python app.py --mock          # simulated fleet → http://127.0.0.1:5000
-.venv/bin/python app.py                 # real fleet (edit fleet/fleet.yaml)
+.venv/bin/python app.py                 # real fleet (edit yamls/default/fleet/fleet.yaml)
 .venv/bin/python app.py --dry-run       # print the real SSH commands, run nothing
 .venv/bin/python -m pytest                  # ~290 tests, no network
 .venv/bin/python -m pytest --cov=core       # coverage
 ```
 
-CLI flags: `--host --public --port --fleet <yaml> --profiles-dir --commands-dir --states-dir --gates-dir --logs-dir <dir> --runs-dir --mock --dry-run --no-poll --no-local-commands --debug`. `--public` binds `0.0.0.0` for the LAN (no-auth posture — §8); default bind is `127.0.0.1:5000`.
+CLI flags: `--host --public --port --fleet <yaml> --profiles-dir --commands-dir --states-dir --gates-dir --logs-dir <dir> --runs-dir --profile <name> --mock --dry-run --no-poll --no-local-commands --debug`. `--public` binds `0.0.0.0` for the LAN (no-auth posture — §8); default bind is `127.0.0.1:5000`. `--profile <name>` picks the active **config profile** (the editable-YAML set under `yamls/<name>/`, default `default`; switchable live — §6c); a per-root flag like `--fleet` still overrides just that one root of the active profile.
 
 **Launching the dev server from an automated shell:** use `setsid … &` and poll with
 `curl --retry`. A compound command that exits non-zero tears down the backgrounded
@@ -130,6 +130,7 @@ browser ──HTTP/WebSocket──► Flask + SocketIO (web/routes.py, core/sync
 | `state_monitor.py` | **status poller** for the States bar (ping each link · run each cmd) → `states_status` broadcast (sim under mock/dry) | I/O |
 | `logs.py` | **Logs view** schema (`logs/logs.yaml`, base-station log windows) + `LogsRegistry` (P8) | **pure** |
 | `config_store.py` | **Config page** backend — path-safe read/validate/write/revert of the editable roots (P8) | mostly pure |
+| `config_profiles.py` | **config profiles** (P8): discover/resolve/persist/scaffold the switchable editable-YAML sets under `yamls/<name>/` (default + alternates) — §6c | **pure** |
 | `local_exec.py` | run a **local** (base-station) command as a subprocess → `CommandResult` | mostly pure |
 | `ssh_client.py` | paramiko wrapper + **jump-host** + `exec_stream()` | I/O |
 | `streaming.py` | live node `tail -F` (over SSH) → SocketIO rooms → xterm | I/O |
@@ -174,6 +175,12 @@ contract** — `gate_mock` keys off the simulated world, not parsed text (see `p
 ---
 
 ## 5. Data model
+
+> **All the operator-editable config roots below live inside the *active config profile*,
+> `yamls/<profile>/` (default `yamls/default/`) — so `fleet/fleet.yaml` means
+> `yamls/default/fleet/fleet.yaml`, etc. A *config profile* is one whole self-contained set
+> of these roots; the app reads from exactly one at a time and the operator flips between
+> them live (§6c). Paths are written profile-relative throughout this doc.**
 
 - **`fleet/fleet.yaml`** — the inventory. `defaults` + `nodes[{name,id,host,subnet,
   variant?,…}]`. Variant is **per-node** runtime state (`Fleet.node_variants`, default
@@ -250,12 +257,13 @@ configurable `stagger` (avoids a thundering herd on a 10-node bring-up).
 The operator can't touch source, so the logic they tune lives in editable config,
 served read-write by the **Config** page (`/config`, the read-write twin of Help):
 
-- **Editable roots** (`core/config_store.py`): `fleet/` · `profiles/` · `commands/` ·
-  `states` (the `networks/` dir) · `gates` (the `gates/` dir — one health gate per file) ·
-  `logs` (the `logs/` dir — base-station log windows for
-  the Logs view). The store is **path-safe** (registered roots only,
-  extension allow-list, no traversal — same discipline as `core/docs.py::safe_resolve`)
-  and reads the tree fresh per request.
+- **Editable roots** (`core/config_store.py`), all under the active profile
+  `yamls/<profile>/` (§6c): `fleet/` · `profiles/` · `commands/` (its `*.sh` scripts live
+  here too) · `states` (the `networks/` dir) · `gates` (the `gates/` dir — one health gate
+  per file) · `logs` (the `logs/` dir — base-station log windows for the Logs view). The
+  store is **path-safe** (registered roots only, extension allow-list, no traversal — same
+  discipline as `core/docs.py::safe_resolve`) and reads the tree fresh per request. On a
+  profile switch the store is repointed in place (`ConfigStore.set_roots`).
 - **Validate → backup → write → reload → audit** on every save:
   - *validate first, never persist invalid* — fleet via `fleet.fleet_from_dict`,
     profiles via `profiles.profile_from_dict`, commands via `commands.commands_from_dict`,
@@ -283,6 +291,57 @@ arbitrary shell — that's RCE-as-a-feature *by design* (P8) and is only accepta
 the existing posture: closed LAN, trusted operators, bind to a chosen interface, **audit
 everything** (P6). Local exec is the higher blast-radius path — it is **echo-only under
 `--mock`/`--dry-run`** and gated by `--no-local-commands`.
+
+---
+
+## 6c. Config profiles (P8) — switch the whole editable-YAML set at once
+
+A **config profile** is a complete, self-contained copy of *all* the §6b editable roots.
+Every profile — `default` included — is a subdir of one aggregation root, with the same
+config-root subdirs; there is no special top-level layout:
+
+```
+yamls/
+  active                    # one line: the persisted active profile name (gitignored; local choice)
+  default/                  # the baseline profile (the Compiler emits here; the fork seed)
+    fleet/  profiles/  commands/  networks/  gates/  logs/
+  <name>/                   # an operator-made alternate (a sandbox, a staging fleet, …)
+    … same subdirs
+```
+
+The app reads its live config from **exactly one active profile** at a time, so an operator
+can keep a real `default` fleet and a throwaway sandbox side by side and flip between them —
+**hot, no restart, with no effect on the other profile's files.** This is the "aggregate all
+the YAMLs under `yamls/`, managed by profiles" shape applied uniformly.
+
+- **`core/config_profiles.py` (`ConfigProfiles`, pure)** — discover (`list`), resolve the
+  six root paths (`resolve`), check (`exists`), persist the active choice
+  (`set_active` → `yamls/active`, atomic + best-effort) and **scaffold a clone**
+  (`create` copies only `*.yaml`/`*.yml`/`*.sh`, never `.bak`/dotfiles). A profile name is a
+  safe slug (`NAME_RE`); `default` is reserved.
+- **Boot** (`app.py::create_app`): the active profile is `--profile`, else the persisted
+  choice, else `default`; an unknown name warns and falls back. A per-root CLI flag
+  (`--fleet`/`--profiles-dir`/…) still overrides just that one root of the active profile.
+  The choice is persisted only for an explicit `--profile`. The active name rides into every
+  template as `active_profile` (a Flask context processor) → the header pill.
+- **Switch live** (`CCFletApp.switch_profile`): repoints every config holder **in place**
+  (`fleet_path`, `ProfileManager.profiles_dir`, `CommandCatalog.set_dirs`,
+  `Orchestrator.commands_dir`, the `StateRegistry`/`GateRegistry`/`LogsRegistry` `.dir`, and
+  `ConfigStore.set_roots`), then **reuses the same per-scope `reload_config`** a Config-page
+  save uses for fleet · profiles · commands · states · gates · logs. So the orchestrator,
+  client factory and mock state (which all share the in-place `Fleet`/registries) pick the
+  new config up exactly as they would a single-file edit. Persisted + audited
+  (`CONFIG_RELOADED`) + broadcast (`profile_changed` → header badge updates, Config page
+  reloads its tree). `create_profile` scaffolds but does **not** switch.
+- **REST** (`web/routes.py`): `GET /api/config/tree` carries `{active, profiles}` alongside
+  `roots`; `GET /api/config/profiles`; `POST /api/config/profile {name}` (switch);
+  `POST /api/config/profile/new {name, from}` (clone). **UI:** the header **profile pill**
+  (guiPart121, merges the old run-mode badge guiPart03) opens a switch popup (guiPart126);
+  the Config page has a **profile row** (guiPart92) with **＋ new** (clone-and-edit).
+  Switching reloads the page so the dashboard fully re-renders on the new fleet/gates/states.
+- **Compiler:** the fork copies the whole tree (so `yamls/default/` is the seed) and
+  `compiler/build.py` emits its owned config into `yamls/default/…`. The template ships only
+  `default`; operators create alternates from the Config page.
 
 ---
 
@@ -351,7 +410,8 @@ pass — verify the live `--mock` boot, not just `pytest`.
 | You want to… | Touch | Then |
 |---|---|---|
 | add/adjust a **triggerable command** | the matching `commands/commands_{host,roleA,roleB}.yaml` (+ a `commands/*.sh`) **from the Config page** — no code | reload picks it up; the button appears |
-| add an editable config root / change validation | `config_store.py` (`ROOTS`, `validate`) | `tests/test_config_store.py` |
+| add an editable config root / change validation | `config_store.py` (`ROOTS`, `validate`) + add the subdir to `config_profiles._SUBDIRS` so every profile resolves it | `tests/test_config_store.py` + `tests/test_config_profiles.py` |
+| keep a separate config set / sandbox (a **config profile**) | create one from the Config page (＋ new) → `yamls/<name>/`; switch live from the header pill — no code (§6c) | `tests/test_config_profiles.py`; engine = `core/config_profiles.py` + `CCFletApp.switch_profile` |
 | add/adjust a **ping LED** in the States bar | `networks/networks.yaml` (a `links` entry) **from the Config page** — no code | reload re-checks; the LED appears |
 | add/adjust a **command-driven state** (exit-code→color) | `networks/stateA.yaml` (a `probes` entry) **from the Config page** — no code | reload re-checks; the LED appears |
 | add/adjust/retune a **health gate** | the matching `gates/gate*.yaml` (kind `reach`/`process`/`metric`) **from the Config page** — no code | reload re-evaluates; the cell appears |
@@ -385,7 +445,7 @@ you expect.
   supervisor tests; the **mock backend** drives orchestrator integration tests.
 - Pure-logic units carry the coverage: `fleet`, `profiles`, `status`, `supervisor`,
   `storage`, `orchestrator`, `transfer`, `commands`, `networks`, `states`, `gates_config`,
-  `config_store`.
+  `config_store`, `config_profiles`.
 - I/O shells (`ssh_client`, `sync`, `streaming`) are covered by the `--mock` boot, not
   unit tests — that's the intended tradeoff. If you make one of them non-trivial, add a
   targeted test.
@@ -395,8 +455,9 @@ you expect.
 
 ## 11. Known limitations / backlog
 
-- This is a **template** — the example `profiles/`, `commands/`, `fleet.yaml` and the
-  three demo services (serviceA/B/C) are placeholders to fill in.
+- This is a **template** — the example `yamls/default/{profiles,commands,fleet}` and the
+  three demo services (serviceA/B/C) are placeholders to fill in. It ships a single config
+  profile (`default`); operators add alternates from the Config page (§6c).
 - Two auth paths (paramiko + system ssh): keep one `key_file`/`ssh_opts` source in
   `fleet.yaml`; `transfer.py` passes the same opts to `rsync -e ssh` / `scp`.
 - `bring_up_fleet` stagger is configurable (`defaults.stagger`); tune for a real herd.

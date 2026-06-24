@@ -39,9 +39,11 @@ HEALTH_WAIT_POLL = 0.4
 
 
 def _default_gates_dir() -> str:
-    """The repo's ``gates/`` dir, resolved from this file (cwd-independent) so an
-    Orchestrator built without an explicit registry (e.g. in tests) still has gates."""
-    return os.path.join(os.path.dirname(os.path.dirname(os.path.abspath(__file__))), "gates")
+    """The default profile's ``gates/`` dir (``yamls/default/gates/``), resolved from this
+    file (cwd-independent) so an Orchestrator built without an explicit registry (e.g. in
+    tests) still has gates."""
+    return os.path.join(os.path.dirname(os.path.dirname(os.path.abspath(__file__))),
+                        "yamls", "default", "gates")
 
 
 @dataclass

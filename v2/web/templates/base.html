@@ -43,10 +43,20 @@
       <a href="/help" data-nav="help">Help</a>
     </nav>
     <div class="header-right">
-      <!-- guiPart03 — run-mode badge (mock / dry-run / live) -->
-      {% if mock %}<span class="badge-env mock" id="guiPart03" data-guipart="03" title="Simulated fleet — no hardware">mock</span>
-      {% elif dry %}<span class="badge-env dry" id="guiPart03" data-guipart="03" title="Commands printed, not executed">dry-run</span>
-      {% else %}<span class="badge-env live" id="guiPart03" data-guipart="03">live</span>{% endif %}
+      <!-- guiPart121 — config-profile pill (P8), merging the old run-mode badge (guiPart03)
+           into a single control: the whole pill is coloured by run mode
+           (green = live · purple = mock · yellow = dry-run) so a simulated fleet is never
+           mistaken for a live one, and the right segment names the active config profile.
+           It is a button → opens the profile-switch popup (guiPart126). The profile
+           segment updates live over the profile_changed event; the run mode is fixed for
+           the life of the process, so its colour never changes here. -->
+      <button type="button"
+              class="badge-env profile-pill {{ 'mock' if mock else ('dry' if dry else 'live') }}"
+              id="guiPart121" data-guipart="121"
+              title="{{ ('Simulated fleet — no hardware' if mock else ('Commands printed, not executed' if dry else 'Live fleet — SSH to real nodes')) }} · config profile “{{ active_profile or 'default' }}” — click to switch">
+        <span class="pill-mode">{{ 'mock' if mock else ('dry-run' if dry else 'live') }}</span>
+        <span class="pill-prof" id="guiPart121prof">⛁ {{ active_profile or 'default' }}</span>
+      </button>
       <!-- guiPart05 — connected-operator roster (avatars) -->
       <div class="roster" id="roster" data-guipart="05"></div>
       <!-- guiPart06 — operator name input (audited) -->
@@ -132,6 +142,23 @@
     <span class="cmdline-lbl"
       title="Sessions pinned to the bottom bar (pin them on the Sessions page) — click a name to open it in the dock">▤ Sessions</span>
     <div id="sessTabs" class="sess-tabs"><span class="muted sess-empty">loading…</span></div>
+  </div>
+
+  <!-- guiPart126 — config-profile switch popup (opened from the profile pill, guiPart121).
+       Lists every config profile (GET /api/config/profiles); clicking one makes it the live
+       editable-YAML set (POST /api/config/profile) and reloads the page so the new fleet /
+       gates / states fully render. Creating a new profile stays on the Config page (＋ new). P8. -->
+  <div id="profModal" class="modal-back" data-guipart="126" hidden>
+    <div class="modal" role="dialog" aria-modal="true" aria-label="Switch config profile">
+      <div class="modal-head">
+        <b>Config profile</b>
+        <button class="btn sm ghost" id="profModalClose" title="Close (Esc)" aria-label="Close">✕</button>
+      </div>
+      <div class="modal-body">
+        <div id="profList" class="prof-list"><div class="muted sm">loading…</div></div>
+        <p class="prof-foot muted sm">Switching reloads this page on the new profile. Create a new one on the <a href="/config">Config</a> page.</p>
+      </div>
+    </div>
   </div>
   {% endif %}
 

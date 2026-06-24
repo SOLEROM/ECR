@@ -139,5 +139,5 @@ def test_registry_missing_dir_is_empty(tmp_path):
 def test_registry_loads_shipped_dir():
     # structural, not name-pinned: the shipped logs dir parses to ≥1 window with a path.
     here = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
-    reg = LogsRegistry(os.path.join(here, "logs"))
+    reg = LogsRegistry(os.path.join(here, "yamls", "default", "logs"))
     assert reg.windows and all(w.key and w.path for w in reg.windows)

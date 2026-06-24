@@ -29,6 +29,7 @@ from .gates_config import (
 )
 from .logs import LogWindow, LogsRegistry, logs_from_dict
 from .config_store import ConfigStore, ConfigRoot, default_roots, validate_text
+from .config_profiles import ConfigProfiles, valid_name as valid_profile_name
 from .orchestrator import Orchestrator, ActionResult, ConnectionPool
 from .streaming import StreamManager
 from .log_stream import LogStreamManager, snapshot_windows
@@ -52,6 +53,7 @@ __all__ = [
     "GATE_KINDS", "color_to_severity",
     "LogWindow", "LogsRegistry", "logs_from_dict",
     "ConfigStore", "ConfigRoot", "default_roots", "validate_text",
+    "ConfigProfiles", "valid_profile_name",
     "Orchestrator", "ActionResult", "ConnectionPool",
     "StreamManager",
     "LogStreamManager", "snapshot_windows",

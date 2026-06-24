@@ -1,7 +1,7 @@
 """HTTP-layer checks for the D8 config/command endpoints (Flask test client).
 
-Config writes are isolated to a temp copy of fleet/ profiles/ commands/ so the repo
-files are never touched.
+Config writes are isolated to a temp copy of the default profile's config roots
+(yamls/default/{fleet,profiles,commands,…}) so the repo files are never touched.
 """
 
 import os
@@ -16,9 +16,12 @@ HERE = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 
 @pytest.fixture
 def client(tmp_path):
+    src = os.path.join(HERE, "yamls", "default")
     for sub in ("fleet", "profiles", "commands", "networks", "logs", "gates"):
-        shutil.copytree(os.path.join(HERE, sub), tmp_path / sub)
+        shutil.copytree(os.path.join(src, sub), tmp_path / sub)
     (tmp_path / "runs").mkdir()
+    # explicit per-root overrides isolate every config root into tmp_path, regardless of
+    # which profile is persisted as active (explicit args win over the active profile).
     flask_app, _socketio, _cc = appmod.create_app(
         fleet_path=str(tmp_path / "fleet" / "fleet.yaml"),
         profiles_dir=str(tmp_path / "profiles"),
@@ -226,4 +229,26 @@ def test_config_save_invalid_blocked(client):
           "    - {name: d2, id: 1, host: h2, subnet: 10.0.1}\n"   # dup id
     r = client.post("/api/config/file",
                     json={"root": "fleet", "path": "fleet.yaml", "text": bad})
+    assert r.status_code == 400 and r.get_json()["ok"] is False
+
+
+# ---- config profiles (the switchable editable-YAML sets, P8) -----------------
+def test_config_profiles_listed(client):
+    # the tree response carries the active profile + the profile list (one round-trip)
+    tree = client.get("/api/config/tree").get_json()
+    assert tree["active"] == "default" and "default" in tree["profiles"]
+    profs = client.get("/api/config/profiles").get_json()
+    assert profs["active"] == "default" and "default" in profs["profiles"]
+
+
+def test_config_profile_switch_unknown_rejected(client):
+    r = client.post("/api/config/profile", json={"name": "no_such_profile"})
+    assert r.status_code == 400 and r.get_json()["ok"] is False
+    # the active profile is unchanged by a rejected switch
+    assert client.get("/api/config/profiles").get_json()["active"] == "default"
+
+
+def test_config_profile_new_rejects_bad_name(client):
+    # 'default' is reserved; rejected before anything is written
+    r = client.post("/api/config/profile/new", json={"name": "default"})
     assert r.status_code == 400 and r.get_json()["ok"] is False

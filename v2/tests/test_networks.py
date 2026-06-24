@@ -79,6 +79,6 @@ def test_load_shipped_file():
     # structural, not name-pinned: the shipped file parses to ≥1 valid link (key + host),
     # so a fork that renames its links keeps this green.
     here = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
-    n = load_networks(os.path.join(here, "networks", "networks.yaml"))
+    n = load_networks(os.path.join(here, "yamls", "default", "networks", "networks.yaml"))
     assert n.links and all(l.key and l.host for l in n.links)
     assert n.poll_interval > 0 and n.ping_timeout > 0

@@ -5,11 +5,11 @@ Reads the precise ``layer2.params.yaml`` + ``layer3.subparts/*.yaml`` and writes
 app's owned files:
 
   - ``domain/identity.py``   — operator-facing labels (brand tokens stay)
-  - ``fleet/fleet.yaml``     — inventory seed (real hosts are LIVE, edited in-app)
-  - ``commands/commands_{host,roleA,roleB}.yaml`` — the `live` command buttons
-  - ``profiles/{roleA,roleB}.yaml`` — per-role action/collector/log catalogs (when a
-    ``*-profile`` sub-part is given)
-  - ``networks/networks.yaml``  — top-bar LEDs (when a `networks` sub-part is given)
+  - ``yamls/default/fleet/fleet.yaml``     — inventory seed (real hosts are LIVE, edited in-app)
+  - ``yamls/default/commands/commands_{host,roleA,roleB}.yaml`` — the `live` command buttons
+  - ``yamls/default/profiles/{roleA,roleB}.yaml`` — per-role action/collector/log catalogs
+    (when a ``*-profile`` sub-part is given)
+  - ``yamls/default/networks/networks.yaml``  — top-bar LEDs (when a `networks` sub-part is given)
   - ``domain/sequences.yaml``   — bring-up/tear-down order (when a `sequence` sub-part is given)
   - ``domain/gates.py``         — gate thresholds + string-contract vocabulary patched
     (when a `gate-*` sub-part overrides them)
@@ -168,16 +168,16 @@ def emit_fleet(app_dir: str, params: Dict[str, Any], manifest: Manifest,
               "system/layer2.params.yaml).\n"
               "# Real hosts/subnets are LIVE data: edit them on the app's Config page; "
               "this seed is a starting point.\n")
-    _write(app_dir, "fleet/fleet.yaml", header + _yaml_block(fleet), manifest)
+    _write(app_dir, "yamls/default/fleet/fleet.yaml", header + _yaml_block(fleet), manifest)
     report.append(f"fleet: {fleet_name!r}, {len(nodes)} node(s)")
 
 
 # --- command catalog (live buttons) -----------------------------------------
 # layer3 action sub-part stem -> emitted catalog file
 _ACTION_FILES = {
-    "host-actions": "commands/commands_host.yaml",
-    "roleA-actions": "commands/commands_roleA.yaml",
-    "roleB-actions": "commands/commands_roleB.yaml",
+    "host-actions": "yamls/default/commands/commands_host.yaml",
+    "roleA-actions": "yamls/default/commands/commands_roleA.yaml",
+    "roleB-actions": "yamls/default/commands/commands_roleB.yaml",
 }
 _ACTION_KEYS = ("label", "group", "scope", "run", "script", "timeout", "danger")
 
@@ -211,8 +211,8 @@ def emit_commands(app_dir: str, subparts: Dict[str, Any], manifest: Manifest,
 # --- per-role profiles (action / collector / log catalogs) ------------------
 # layer3 profile sub-part stem -> (role, emitted profile file)
 _PROFILE_FILES = {
-    "roleA-profile": ("roleA", "profiles/roleA.yaml"),
-    "roleB-profile": ("roleB", "profiles/roleB.yaml"),
+    "roleA-profile": ("roleA", "yamls/default/profiles/roleA.yaml"),
+    "roleB-profile": ("roleB", "yamls/default/profiles/roleB.yaml"),
 }
 
 
@@ -256,7 +256,7 @@ def emit_networks(app_dir: str, subparts: Dict[str, Any], manifest: Manifest,
     }}
     header = ("# networks/networks.yaml — base-station connectivity LEDs (GENERATED; "
               "LIVE — editable on the Config page).\n")
-    _write(app_dir, "networks/networks.yaml", header + _yaml_block(doc), manifest)
+    _write(app_dir, "yamls/default/networks/networks.yaml", header + _yaml_block(doc), manifest)
     report.append(f"networks: {len(doc['networks']['links'])} link(s)")
 
 

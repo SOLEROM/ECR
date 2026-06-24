@@ -3,7 +3,18 @@
 {% block content %}
 <h1 class="page">Config</h1>
 
-<!-- Config editor. GUI parts tagged guiPart93–guiPart108 (see web/templates/GUIPARTS.md). -->
+<!-- Config editor. GUI parts tagged guiPart92–guiPart108 (see web/templates/GUIPARTS.md). -->
+<!-- guiPart92 — config profile row (P8): shows the active editable-YAML set + a ＋ new
+     button to create one (clones the current, then switches in to edit it). Switching
+     *between* existing profiles is done from the header pill's popup (guiPart121/126).
+     Every profile lives under yamls/<name>/ (the default profile is yamls/default/). -->
+<div class="cfg-prof" data-guipart="92">
+  <span class="cfg-prof-lbl">Profile</span>
+  <b class="cfg-prof-cur" id="cfgProfCur">default</b>
+  <button class="btn sm ghost" id="cfgProfNew" title="Create a new profile (clones the current one) and switch to it">＋ new</button>
+  <span class="muted sm" id="cfgProfNote"></span>
+</div>
+
 <!-- guiPart93 — config layout (tree + editor) -->
 <div class="help cfg" data-guipart="93">
   <!-- guiPart94 — config sidebar -->
@@ -56,10 +67,14 @@
   const btnCheck  = document.getElementById("cfgCheck");
   const btnSave   = document.getElementById("cfgSave");
   const btnRevert = document.getElementById("cfgRevert");
+  const profCur   = document.getElementById("cfgProfCur");
+  const profNote  = document.getElementById("cfgProfNote");
+  const btnProfNew = document.getElementById("cfgProfNew");
 
   const fileLinks = {};        // "root/path" -> <a>
   let cur = null;              // {root, path, kind}
   let original = "";           // last-saved text (for dirty tracking)
+  let curProfile = "default";  // the active config profile (the editable-YAML set)
 
   function key(root, path) { return root + "/" + path; }
   function dirty() { return cur && textEl.value !== original; }
@@ -190,6 +205,57 @@
     refreshState();
   }
 
+  // ---- config profiles (the editable-YAML set) ----
+  // Each profile is a complete set of config roots; every profile lives under yamls/<name>/
+  // (default = yamls/default/). This page shows the *active* profile + a ＋ new button to
+  // clone one; switching *between* existing profiles is done from the header pill's popup
+  // (guiPart121/126), which reloads the whole page on the new set (P8).
+  function renderProfiles(profiles, active) {
+    curProfile = active || "default";
+    if (profCur) profCur.textContent = curProfile;
+    profNote.textContent = curProfile === "default"
+      ? "editing the default YAMLs (yamls/default/) · switch profile from the header pill"
+      : "editing yamls/" + curProfile + " — other profiles are untouched · switch from the header pill";
+  }
+
+  // Make `name` the live profile and re-load the tree in place. Used only by ＋ new, to
+  // hop straight into a freshly-cloned profile for editing (the popup handles the rest).
+  async function switchProfile(name) {
+    if (name === curProfile) return;
+    if (dirty() && !confirm("Discard unsaved changes and switch profile?")) return;
+    const res = await CCFlet.api("/api/config/profile", "POST", { name });
+    if (res && res.ok) {
+      curProfile = res.active || name;
+      CCFlet.toast("config profile → " + curProfile, "ok");
+      await init();                       // re-load the tree from the now-live profile
+    } else {
+      showError(res);
+      CCFlet.toast("switch blocked: " + ((res && res.error) || "error"), "err");
+    }
+  }
+
+  async function newProfile() {
+    const name = (prompt("New profile name (letters, digits, - or _) — clones “" +
+                         curProfile + "”:") || "").trim();
+    if (!name) return;
+    const res = await CCFlet.api("/api/config/profile/new", "POST",
+      { name: name, from: curProfile });
+    if (res && res.ok) {
+      CCFlet.toast("created profile " + res.profile, "ok");
+      await switchProfile(res.profile);   // hop straight into the new sandbox
+    } else {
+      CCFlet.toast("create blocked: " + ((res && res.error) || "error"), "err");
+    }
+  }
+
+  if (btnProfNew) btnProfNew.addEventListener("click", newProfile);
+  // another operator switched the live profile → re-sync this tab (and its tree).
+  CCFlet.on("profile_changed", (d) => {
+    if (!d || !d.active) return;
+    renderProfiles(d.profiles, d.active);
+    if (d.active !== curProfile) init();
+  });
+
   // ---- editor behaviors ----
   // Render the line-number gutter from the current text and keep it scroll-synced.
   function updateGutter() {
@@ -230,6 +296,7 @@
   async function init() {
     const data = await fetchJSON("/api/config/tree");
     if (!data || !data.roots) { treeEl.innerHTML = '<div class="empty sm">No config roots.</div>'; return; }
+    renderProfiles(data.profiles, data.active);
     renderTree(data.roots);
     // open the first file (usually fleet.yaml)
     for (const r of data.roots) if (r.files.length) { openFile(r.key, r.files[0].path, r.files[0].kind); break; }

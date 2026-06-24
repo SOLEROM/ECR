@@ -102,6 +102,52 @@ html.light .theme-toggle .ico-moon { display: block; }
 .badge-env.dry { background: rgba(210,153,34,.18); color: var(--yellow); border: 1px solid var(--yellow); }
 .badge-env.live { background: rgba(63,185,80,.16); color: var(--green); border: 1px solid var(--green); }
 
+/* config-profile pill (P8) — one header control merging the run-mode badge + the active
+   profile (guiPart121). The whole pill takes the run-mode colour (green = live · purple =
+   mock · yellow = dry-run, matching the badge it replaced) so a simulated fleet is never
+   mistaken for a live one; the right segment names the active config profile. It's a
+   button → opens the switch popup (guiPart126). */
+.profile-pill { display: inline-flex; align-items: stretch; gap: 0; padding: 0; overflow: hidden;
+  border-radius: 6px; cursor: pointer; background: var(--bg-2); border: 1px solid var(--border); }
+.profile-pill:hover { filter: brightness(1.12); }
+.profile-pill:active { transform: translateY(1px); }
+.profile-pill .pill-mode { padding: 2px 7px; font-weight: 700; text-transform: uppercase; letter-spacing: .5px; }
+.profile-pill .pill-prof { padding: 2px 8px; font-weight: 600; text-transform: none; letter-spacing: .2px;
+  background: var(--bg-2); color: var(--text); border-left: 1px solid var(--border); }
+.profile-pill.live { border-color: var(--green); }
+.profile-pill.live .pill-mode { background: rgba(63,185,80,.16); color: var(--green); }
+.profile-pill.mock { border-color: var(--purple); }
+.profile-pill.mock .pill-mode { background: rgba(163,113,247,.18); color: var(--purple); }
+.profile-pill.dry { border-color: var(--yellow); }
+.profile-pill.dry .pill-mode { background: rgba(210,153,34,.18); color: var(--yellow); }
+
+/* config-profile switch popup (guiPart126) — opened from the pill above */
+.modal-back { position: fixed; inset: 0; z-index: 60; display: flex; align-items: flex-start;
+  justify-content: center; padding-top: 12vh; background: rgba(1,4,9,.6); }
+.modal-back[hidden] { display: none; }
+.modal { width: 340px; max-width: calc(100vw - 32px); background: var(--bg-1);
+  border: 1px solid var(--border); border-radius: var(--radius); box-shadow: 0 16px 48px rgba(0,0,0,.5); }
+.modal-head { display: flex; align-items: center; justify-content: space-between;
+  padding: 10px 12px; border-bottom: 1px solid var(--border); }
+.modal-body { padding: 10px 12px; }
+.prof-list { display: flex; flex-direction: column; gap: 4px; }
+.prof-row { display: flex; align-items: center; gap: 8px; padding: 7px 9px; border-radius: 6px;
+  border: 1px solid var(--border); background: var(--bg-2); color: var(--text); cursor: pointer;
+  font: inherit; font-size: 13px; text-align: left; }
+.prof-row:hover { background: var(--bg-3); border-color: var(--dim); }
+.prof-row:disabled { opacity: .5; cursor: default; }
+.prof-row.active { border-color: var(--blue); color: var(--blue); background: rgba(88,166,255,.12); cursor: default; }
+.prof-row .pr-mark { width: 12px; color: var(--blue); }
+.prof-row .pr-name { flex: 1; }
+.prof-foot { margin: 10px 0 0; }
+.prof-foot a { color: var(--blue); }
+
+/* config profile row (top of the Config page) */
+.cfg-prof { display: flex; align-items: center; gap: 8px; margin: 0 0 12px; flex-wrap: wrap; }
+.cfg-prof-lbl { font-size: 12px; font-weight: 600; color: var(--muted); }
+.cfg-prof-cur { font-family: var(--mono); font-size: 12px; color: var(--blue); }
+.cfg-prof select { padding: 4px 8px; }
+
 /* ---- layout --------------------------------------------------------- */
 .wrap { max-width: 1500px; margin: 0 auto; padding: 18px 20px 60px; }
 .toolbar { display: flex; flex-wrap: wrap; align-items: center; gap: 10px;

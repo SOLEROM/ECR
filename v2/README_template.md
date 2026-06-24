@@ -18,9 +18,10 @@ validated, hot-reloaded, and audited — without touching source.
 
 ```bash
 ./run.sh --mock          # simulated fleet, no hardware → http://127.0.0.1:5000
-./run.sh                 # real fleet (edit fleet/fleet.yaml first)
+./run.sh                 # real fleet (edit yamls/default/fleet/fleet.yaml first)
+./run.sh --profile sandbox  # boot on the yamls/sandbox/ config profile (create from Config page)
 ./run.sh --dry-run       # print the SSH/transfer commands, run nothing
-.venv/bin/python -m pytest   # 201 tests, no network
+.venv/bin/python -m pytest   # pure-logic + mock-backed suite, no network
 ```
 
 `run.sh` creates the `.venv` and installs deps on first run (deps are not in the system
@@ -50,12 +51,13 @@ A node has two **roles** and runs one of two per-node **variants** (A / B):
 - **roleA** — the primary host, reached directly over SSH.
 - **roleB** — a secondary host reached *through* roleA as an SSH jump-host; variant B only.
 
-Each role has a **profile** (`profiles/roleA.yaml`, `profiles/roleB.yaml`) — a
-parameterized catalog of actions (`transfer` / `exec` / `daemon` / `daemon_stop` /
-`daemon_status`), status **collectors**, and tailable **logs**. The example profiles run
-three demo daemons: **serviceA** + **serviceB** on roleA, **serviceC** on roleB (variant B).
+Each role has a **profile** (`yamls/default/profiles/roleA.yaml`,
+`yamls/default/profiles/roleB.yaml`) — a parameterized catalog of actions (`transfer` /
+`exec` / `daemon` / `daemon_stop` / `daemon_status`), status **collectors**, and tailable
+**logs**. The example profiles run three demo daemons: **serviceA** + **serviceB** on
+roleA, **serviceC** on roleB (variant B).
 
-`fleet/fleet.yaml` is the single source of truth for the inventory;
+`yamls/default/fleet/fleet.yaml` is the single source of truth for the inventory;
 `core/fleet.py::Fleet.params()` derives the full per-node substitution dict (you never
 hand-type derived values).
 
@@ -89,7 +91,9 @@ core/               generic engine: pure logic (fleet, profiles, supervisor, sta
                     orchestrator, streaming, sync, events, storage, state_monitor, mock_ssh)
 domain/             per-app spec-derived logic (gates, mock_rules, sequences, identity)
 web/                routes.py + templates/ + static/ (css, vendored xterm/socket.io)
-fleet/ profiles/ commands/ networks/   the operator-editable config (the Config page)
+yamls/<profile>/    the operator-editable config (the Config page), one tree per config
+                    profile: fleet/ profiles/ commands/ networks/ gates/ logs/
+                    — default is yamls/default/; create alternates from the Config page
 design/             the Help-page docs (part-1 subsystem reference)
 scripts/            base-station CLI helpers (not the command catalog)
 tests/              pure-logic unit tests + a mock-backed integration suite
@@ -102,17 +106,20 @@ compiler/  compile.sh  system/        the Compiler + the wish list it builds fro
 Two ways, depending on scale:
 
 - **Operator, at runtime** — change anything `live` (fleet, profiles, command buttons,
-  network LEDs) from the **Config** page. No code, no restart.
+  network LEDs) from the **Config** page. No code, no restart. Keep more than one whole
+  config set side by side as **config profiles** and flip the live one from the header
+  pill (e.g. a real `default` and a throwaway sandbox) — hot, audited, isolated.
 - **Developer, structural** — edit the source/`domain/` directly **here in the template**,
   or — for a real fork — describe it in a `system/` wish list and let the Rebuild system
   build it (see [`README_rebuild.md`](README_rebuild.md)).
 
 | You want to… | Edit (template) |
 |---|---|
-| change the fleet (nodes, hosts, variants) | `fleet/fleet.yaml` (from the Config page) |
-| change what each role runs | `profiles/roleA.yaml` / `roleB.yaml` |
-| add a triggerable button | `commands/commands_{host,roleA,roleB}.yaml` (+ a `*.sh`) |
-| change the top-bar connectivity LEDs | `networks/networks.yaml` |
+| change the fleet (nodes, hosts, variants) | `yamls/default/fleet/fleet.yaml` (from the Config page) |
+| change what each role runs | `yamls/default/profiles/roleA.yaml` / `roleB.yaml` |
+| add a triggerable button | `yamls/default/commands/commands_{host,roleA,roleB}.yaml` (+ a `*.sh`) |
+| change the top-bar connectivity LEDs | `yamls/default/networks/networks.yaml` |
+| keep a separate config set / sandbox | create a **config profile** from the Config page (＋ new) → `yamls/<name>/`; switch live from the header pill |
 | change a health gate or threshold | `domain/gates.py` (keep `domain/mock_rules.py` in sync) |
 | change bring-up/tear-down order | `domain/sequences.yaml` |
 | relabel the app (name / brand / gate labels) | `domain/identity.py` |

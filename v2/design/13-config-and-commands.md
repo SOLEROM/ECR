@@ -25,6 +25,12 @@ config reachable from the browser**, not code:
 - **`networks/networks.yaml`** — the off-fleet links for the top-bar LEDs
   ([14](14-connectivity-leds.md)).
 
+> **All these roots live inside the active *config profile*, `yamls/<profile>/` (default
+> `yamls/default/`).** A config profile is one whole self-contained set of the roots above;
+> the app reads from exactly one at a time, and the operator can flip the live one — hot,
+> isolated — from the header pill (see **Config profiles** below). Paths here are written
+> profile-relative.
+
 All of these are served read-write by the **Config** page (`/config`) — the
 read-write twin of the read-only **Help** page. A save is **validated before it
 takes effect, backed up, hot-reloaded with no restart, and audited** like any other
@@ -39,6 +45,7 @@ browser (Config page)
    │  POST /api/config/validate   ── check only (the "Check" button)
    │  POST /api/config/file       ── save: validate → backup → write → reload → audit
    │  POST /api/config/revert     ── restore newest backup
+   │  POST /api/config/profile    ── switch the active config profile (hot, all scopes)
    ▼
 core/config_store.py  ── path-safe roots, extension allow-list, per-kind validators
    ▼
@@ -52,6 +59,38 @@ CCFletApp.reload_config(scope)  ── hot-reload in place, broadcast, audit
 
 Custom commands are rendered as buttons **client-side** from `GET /api/commands`, so
 editing a catalog file and reloading changes the UI with **no template edit**.
+
+## Config profiles (switch the whole editable-YAML set)
+
+A **config profile** is a complete, self-contained copy of *every* root above. Every
+profile — `default` included — is a subdir of one aggregation root, with the same
+config-root subdirs:
+
+```
+yamls/
+  active                 # the persisted active profile name (a local runtime choice)
+  default/               # the baseline profile
+    fleet/  profiles/  commands/  networks/  gates/  logs/
+  <name>/                # an operator-made alternate (a sandbox, a staging fleet, …)
+    … same subdirs
+```
+
+The app reads its live config from **exactly one active profile** at a time, so an operator
+can keep a real `default` fleet and a throwaway sandbox side by side and **flip between them
+from the header pill** — hot, no restart, and **with no effect on the other profile's
+files**. Picked at boot by `--profile <name>` (else the persisted choice, else `default`);
+a per-root flag such as `--fleet` still overrides just that one root of the active profile.
+
+- `GET /api/config/tree` returns `{active, profiles}` alongside the roots; `GET
+  /api/config/profiles` lists them.
+- `POST /api/config/profile {name}` — switch the live set: repoint every root **in place**
+  and reuse the same per-scope `reload_config` a save uses (fleet · profiles · commands ·
+  states · gates · logs), then persist + audit (`CONFIG_RELOADED`) + broadcast
+  (`profile_changed`).
+- `POST /api/config/profile/new {name, from}` — scaffold a clone (copies only the editable
+  `*.yaml`/`*.sh`, never backups); does **not** switch.
+
+Engine: `core/config_profiles.py` (pure path/scaffold logic) + `CCFletApp.switch_profile`.
 
 ## The command catalog (`commands/commands_{host,roleA,roleB}.yaml`)
 

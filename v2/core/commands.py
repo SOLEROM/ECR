@@ -181,6 +181,15 @@ class CommandCatalog:
                 origin[name] = fname
         self._commands = out
 
+    def set_dirs(self, path: str):
+        """Repoint the catalog at a new commands dir — used when the active config profile
+        changes (P8). Mirrors ``__init__``'s path derivation (the same dir is where a
+        command's ``script:`` resolves); the caller follows with :meth:`reload` (the
+        ``commands`` reload scope) to re-read."""
+        self.path = path
+        abs_p = os.path.abspath(path)
+        self.dir = abs_p if os.path.isdir(abs_p) else os.path.dirname(abs_p)
+
     def reload(self):
         self.load()
 

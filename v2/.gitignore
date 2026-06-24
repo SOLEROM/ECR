@@ -10,8 +10,13 @@ htmlcov/
 .venv/
 
 # Config-page backups — the config store snapshots the prior file to <root>/.bak/
-# (fleet/.bak/, commands/.bak/, profiles/.bak/, networks/.bak/) on every save.
+# (e.g. yamls/default/fleet/.bak/, yamls/default/commands/.bak/, …) on every save.
 .bak/
+
+# Config profiles (P8) — the active-profile marker is a LOCAL runtime choice (which
+# editable-YAML set is live on this base station), not shared. The profile config dirs
+# themselves (yamls/default/, yamls/<name>/, …) ARE tracked.
+yamls/active
 
 # Rebuild system (the Compiler) — generated artifacts
 # (gitignore has no inline comments: each pattern must be on its own line)

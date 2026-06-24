@@ -16,7 +16,7 @@ you like. The ids are not used by any logic — they're purely for navigation/re
 |---|---|
 | guiPart01 | brand / logo (links home) |
 | guiPart02 | main navigation (Dashboard / Sessions / Config / Help) |
-| guiPart03 | run-mode badge (mock / dry-run / live) |
+| guiPart03 | _(merged into guiPart121 — the run mode is now the colour of the profile pill)_ |
 | guiPart04 | States bar — status LEDs (ping links + cmd states); the "States" word re-checks all states on demand |
 | guiPart05 | connected-operator roster |
 | guiPart06 | operator name input |
@@ -25,6 +25,8 @@ you like. The ids are not used by any logic — they're purely for navigation/re
 | guiPart09 | session dock (bottom drawer) |
 | guiPart10 | bottom command bar (session chips) |
 | guiPart120 | light/dark theme toggle (header, top-right) — numbered out-of-sequence to stay globally unique (base.html renders on every page) |
+| guiPart121 | config-profile pill (the editable-YAML set in use; P8) — header, top-right; merges the old run-mode badge (guiPart03): the pill is coloured by run mode (green = live · purple = mock · yellow = dry-run) and labelled with the active profile. It's a button → opens the switch popup (guiPart126); the profile segment updates live on `profile_changed` |
+| guiPart126 | config-profile switch popup (P8) — opened from the pill (guiPart121); lists every profile, clicking one switches the live set (`POST /api/config/profile`) and reloads the page. Create a new profile from the Config page (guiPart92) |
 
 ## Dashboard — `dashboard.html` (11–40)
 
@@ -126,10 +128,11 @@ you like. The ids are not used by any logic — they're purely for navigation/re
 | guiPart88 | an event row (built in JS) |
 | guiPart89–92 | event row sub-fields: time / type / user / detail (built in JS) |
 
-## Config editor — `config.html` (93–108)
+## Config editor — `config.html` (92–108)
 
 | Part | Region |
 |---|---|
+| guiPart92 | config profile row (P8) — shows the active editable-YAML set + ＋ new (clone-and-edit). Switching *between* profiles is done from the header pill's popup (guiPart121/126); every profile lives under `yamls/<name>/` (default is `yamls/default/`) |
 | guiPart93 | config layout |
 | guiPart94 | config sidebar |
 | guiPart95 | filter input |

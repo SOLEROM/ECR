@@ -134,6 +134,12 @@ class SyncManager:
         """Gate config edited (P8): dashboards rebuild their gate cells from /api/gates."""
         self.socketio.emit("gates_changed", {}, room=FLEET_ROOM)
 
+    def broadcast_profile_changed(self, active, profiles):
+        """The active config profile changed — every open tab updates its header badge
+        and (on the Config page) re-loads the tree from the now-live profile (P8)."""
+        self.socketio.emit("profile_changed", {"active": active, "profiles": profiles},
+                           room=FLEET_ROOM)
+
     def broadcast_states_status(self, states: list):
         """Base-station status poll result → the States bar under the header. ``states``
         is a list of ``{key,label,kind,color,detail,hint}`` (ping links + cmd states)."""

@@ -552,6 +552,80 @@
   // seed the States bar (until a states_status push arrives)
   CCFlet.api("/api/states").then((d) => { if (d && d.states) renderStateLeds(d.states); });
 
+  // active config profile switched (on the Config page) → update the header badge in
+  // every open tab + toast, so it's always clear which editable-YAML set is live (P8).
+  CCFlet.on("profile_changed", (d) => {
+    if (!d || !d.active) return;
+    const p = document.getElementById("guiPart121prof");
+    if (p) p.textContent = "⛁ " + d.active;   // only the profile segment changes (mode is fixed)
+    CCFlet.toast("config profile → " + d.active, "ok");
+  });
+
+  // The config-profile pill (guiPart121) opens a small popup (guiPart126) to switch the
+  // live editable-YAML set. Switching POSTs /api/config/profile and reloads the page so the
+  // new fleet / gates / states fully render (the dashboard doesn't rebuild its grid on a
+  // live fleet_changed). Creating a new profile stays on the Config page (＋ new). P8.
+  function setupProfileSwitch() {
+    const pill   = document.getElementById("guiPart121");
+    const modal  = document.getElementById("profModal");
+    const list   = document.getElementById("profList");
+    const closeB = document.getElementById("profModalClose");
+    if (!pill || !modal || !list) return;
+
+    let active = "default";
+    const isOpen = () => !modal.hasAttribute("hidden");
+    const close  = () => modal.setAttribute("hidden", "");
+
+    async function open() {
+      modal.removeAttribute("hidden");
+      list.innerHTML = '<div class="muted sm">loading…</div>';
+      const d = await CCFlet.api("/api/config/profiles");
+      const profiles = (d && d.profiles && d.profiles.length) ? d.profiles : ["default"];
+      active = (d && d.active) || "default";
+      list.innerHTML = "";
+      profiles.forEach((name) => {
+        const row = document.createElement("button");
+        row.type = "button";
+        row.className = "prof-row" + (name === active ? " active" : "");
+        row.dataset.guipart = "126";
+        const mark = document.createElement("span");
+        mark.className = "pr-mark";
+        mark.textContent = name === active ? "✓" : "";
+        const nm = document.createElement("span");
+        nm.className = "pr-name";
+        nm.textContent = name;                       // textContent — never innerHTML (XSS)
+        row.appendChild(mark);
+        row.appendChild(nm);
+        if (name === active) {
+          const tag = document.createElement("span");
+          tag.className = "muted sm";
+          tag.textContent = "active";
+          row.appendChild(tag);
+        } else {
+          row.addEventListener("click", () => choose(name));
+        }
+        list.appendChild(row);
+      });
+    }
+
+    async function choose(name) {
+      list.querySelectorAll(".prof-row").forEach((r) => (r.disabled = true));
+      const res = await CCFlet.api("/api/config/profile", "POST", { name });
+      if (res && res.ok) {
+        CCFlet.toast("config profile → " + (res.active || name), "ok");
+        location.reload();                           // re-render the page on the new profile
+      } else {
+        CCFlet.toast("switch blocked: " + ((res && res.error) || "error"), "err");
+        open();                                      // reload the list (re-enables the rows)
+      }
+    }
+
+    pill.addEventListener("click", () => (isOpen() ? close() : open()));
+    if (closeB) closeB.addEventListener("click", close);
+    modal.addEventListener("click", (e) => { if (e.target === modal) close(); });
+    document.addEventListener("keydown", (e) => { if (e.key === "Escape" && isOpen()) close(); });
+  }
+
   document.addEventListener("DOMContentLoaded", () => {
     // nav active state
     const path = location.pathname;
@@ -590,6 +664,7 @@
         if (CCFlet.socket) CCFlet.socket.emit("set_username", { username: CCFlet.user.username });
       });
     }
+    setupProfileSwitch();
     connect();
     setupDock();
   });

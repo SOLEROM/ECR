@@ -144,6 +144,13 @@ class ConfigStore:
         self.dry_run = dry_run
 
     # ---- lookup ----------------------------------------------------------
+    def set_roots(self, roots):
+        """Repoint the store at a new set of roots **in place** — used when the active
+        config profile changes (P8). Every holder shares this same ``ConfigStore``, so
+        rebinding ``_roots`` here re-aims every subsequent read/write at the new profile's
+        directories without rebuilding the store."""
+        self._roots = {r.key: r for r in roots}
+
     def root(self, key):
         return self._roots.get(key)
 

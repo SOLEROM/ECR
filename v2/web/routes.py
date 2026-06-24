@@ -119,7 +119,29 @@ def config_page():
 @web.route("/api/config/tree")
 def api_config_tree():
     # Read the roots fresh each request → add/rename/remove reflects with no restart.
-    return jsonify({"roots": ccflet.config.list_tree()})
+    # The active profile + the list of profiles ride along so the Config page's profile
+    # selector renders without a second round-trip (P8).
+    return jsonify({"roots": ccflet.config.list_tree(), **ccflet.list_profiles()})
+
+
+@web.route("/api/config/profiles")
+def api_config_profiles():
+    # The switchable editable-YAML sets: {"active": name, "profiles": [...]} (P8).
+    return jsonify(ccflet.list_profiles())
+
+
+@web.route("/api/config/profile", methods=["POST"])
+def api_config_profile_switch():
+    data = request.get_json(silent=True) or {}
+    res = ccflet.switch_profile(data.get("name", ""), user=_user())
+    return jsonify(res), (200 if res.get("ok") else 400)
+
+
+@web.route("/api/config/profile/new", methods=["POST"])
+def api_config_profile_new():
+    data = request.get_json(silent=True) or {}
+    res = ccflet.create_profile(data.get("name", ""), data.get("from"), user=_user())
+    return jsonify(res), (200 if res.get("ok") else 400)
 
 
 @web.route("/api/config/file")

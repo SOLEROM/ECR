@@ -56,7 +56,7 @@ def test_emit_identity_can_drop_a_gate(tmp_path):
 def test_emit_fleet_seed_and_count(tmp_path):
     man = Manifest(app_dir=str(tmp_path))
     B.emit_fleet(str(tmp_path), DEMO_PARAMS, man, [])
-    doc = yaml.safe_load((tmp_path / "fleet" / "fleet.yaml").read_text())
+    doc = yaml.safe_load((tmp_path / "yamls" / "default" / "fleet" / "fleet.yaml").read_text())
     assert doc["fleet"]["name"] == "weather"
     assert [n["name"] for n in doc["fleet"]["nodes"]] == ["node1", "node2"]
     # loads cleanly through the engine's own validator
@@ -73,7 +73,7 @@ def test_emit_commands_from_action_subpart(tmp_path):
     man = Manifest(app_dir=str(tmp_path))
     report = []
     B.emit_commands(str(tmp_path), sub, man, report)
-    doc = yaml.safe_load((tmp_path / "commands" / "commands_host.yaml").read_text())
+    doc = yaml.safe_load((tmp_path / "yamls" / "default" / "commands" / "commands_host.yaml").read_text())
     assert "disk" in doc["commands"]
     assert doc["commands"]["disk"]["run"] == "df -h"
 
@@ -93,7 +93,7 @@ def test_emit_profiles_from_subpart(tmp_path):
     man = Manifest(app_dir=str(tmp_path))
     report = []
     B.emit_profiles(str(tmp_path), sub, man, report)
-    doc = yaml.safe_load((tmp_path / "profiles" / "roleA.yaml").read_text())
+    doc = yaml.safe_load((tmp_path / "yamls" / "default" / "profiles" / "roleA.yaml").read_text())
     assert doc["name"] == "roleA"
     assert "extends" not in doc                          # the patch key is stripped
     # loads cleanly through the engine's own profile validator
@@ -101,14 +101,14 @@ def test_emit_profiles_from_subpart(tmp_path):
     prof = profile_from_dict(doc, name="roleA")
     assert prof.action("serviceA_start").kind == "daemon"
     assert prof.action("deploy_serviceA").method == "rsync"
-    assert "profiles/roleA.yaml" in man.owned
+    assert "yamls/default/profiles/roleA.yaml" in man.owned
 
 
 def test_emit_profiles_skipped_keeps_template_default(tmp_path):
     # no *-profile sub-part → nothing written (template profile is kept, R2)
     man = Manifest(app_dir=str(tmp_path))
     B.emit_profiles(str(tmp_path), {}, man, [])
-    assert not (tmp_path / "profiles").exists()
+    assert not (tmp_path / "yamls" / "default" / "profiles").exists()
     assert man.owned == {}
 
 
@@ -134,7 +134,7 @@ def test_emit_networks(tmp_path):
     sub = {"networks": {"poll_interval": 7, "links": [
         {"key": "link1", "label": "GW", "host": "10.0.0.1"}]}}
     B.emit_networks(str(tmp_path), sub, Manifest(app_dir=str(tmp_path)), [])
-    doc = yaml.safe_load((tmp_path / "networks" / "networks.yaml").read_text())
+    doc = yaml.safe_load((tmp_path / "yamls" / "default" / "networks" / "networks.yaml").read_text())
     assert doc["networks"]["poll_interval"] == 7
     assert doc["networks"]["links"][0]["key"] == "link1"
 
@@ -194,7 +194,7 @@ def test_catalog_gate_contract_defaults():
 
 def test_build_writes_manifest_and_report(tmp_path):
     man, report = B.build(str(tmp_path), DEMO_PARAMS, {})
-    assert "domain/identity.py" in man.owned and "fleet/fleet.yaml" in man.owned
+    assert "domain/identity.py" in man.owned and "yamls/default/fleet/fleet.yaml" in man.owned
     assert any("identity:" in line for line in report)
     # the Help tree is regenerated too (front page owned)
     assert "design/00-about.md" in man.owned

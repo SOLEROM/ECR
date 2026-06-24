@@ -28,7 +28,7 @@ from flask_socketio import SocketIO
 from core import (
     Fleet, load_fleet, ProfileManager, SessionManager, SessionManifest,
     EventStream, EventType, Orchestrator, StreamManager, init_sync, now_iso,
-    render_connection, CommandCatalog, ConfigStore, default_roots,
+    render_connection, CommandCatalog, ConfigStore, ConfigProfiles, default_roots,
     StateRegistry, StateMonitor, GateRegistry, LogsRegistry, LogStreamManager,
 )
 from core.mock_ssh import MockFleetState, MockSSHClient
@@ -63,6 +63,7 @@ class CCFletApp:
         # config-over-code (D8): set by create_app
         self.fleet_path = None
         self.config = None      # ConfigStore (Config page backend)
+        self.config_profiles = None  # ConfigProfiles (switchable editable-YAML sets, P8)
         self.commands = None    # CommandCatalog (operator command catalog)
         self.allow_local = True
         # base-station status LEDs (the States bar): set by create_app
@@ -293,6 +294,77 @@ class CCFletApp:
                         {"scope": scope, "summary": summary}, user=user)
         return summary
 
+    # ---- config profiles (switchable editable-YAML sets, P8) ------------
+    def active_profile(self):
+        return self.config_profiles.active if self.config_profiles else "default"
+
+    def list_profiles(self):
+        reg = self.config_profiles
+        return {"active": reg.active if reg else "default",
+                "profiles": reg.list() if reg else ["default"]}
+
+    def create_profile(self, name, from_name=None, user=None):
+        """Scaffold a new config profile (a clone of another). Does **not** switch to it —
+        the operator picks it next. Audited like any config change (P6)."""
+        if not self.config_profiles:
+            return {"ok": False, "error": "config profiles unavailable"}
+        res = self.config_profiles.create(name, from_name)
+        if res.get("ok"):
+            self.orch._emit(EventType.CONFIG_SAVED,
+                            {"profile": res["profile"], "from": res.get("from"),
+                             "text": f"created config profile {res['profile']}"}, user=user)
+        return res
+
+    def switch_profile(self, name, user=None):
+        """Make ``name`` the live config profile — repoint every editable root at that
+        profile's directories, then hot-reload **every** scope in place (no restart, P8).
+
+        This reuses the same per-scope reloads a Config-page save uses, so the orchestrator,
+        client factory and mock state (which all share the in-place ``Fleet``/registries)
+        pick the new config up exactly as they would a single-file edit. The choice is
+        persisted (a restart remembers it) and the switch is audited + broadcast."""
+        reg = self.config_profiles
+        if not reg:
+            return {"ok": False, "error": "config profiles unavailable"}
+        if not reg.exists(name):
+            return {"ok": False, "error": f"unknown profile {name!r}"}
+        if name == reg.active:
+            return {"ok": True, "profile": name, "active": name, "unchanged": True}
+        paths = reg.resolve(name)
+        if not os.path.isfile(paths["fleet_path"]):
+            return {"ok": False, "error": f"profile {name!r} has no fleet/fleet.yaml"}
+        # repoint every config holder at the new profile's roots (in place — every holder
+        # shares these same objects, exactly like a Config-page reload does).
+        self.fleet_path = paths["fleet_path"]
+        self.profiles.profiles_dir = paths["profiles_dir"]
+        self.commands.set_dirs(paths["commands_dir"])
+        self.orch.commands_dir = paths["commands_dir"]
+        self.states.dir = paths["states_dir"]
+        self.states_dir = paths["states_dir"]
+        self.gates.dir = paths["gates_dir"]
+        self.gates_dir = paths["gates_dir"]
+        self.logs.dir = paths["logs_dir"]
+        self.logs_dir = paths["logs_dir"]
+        self.config.set_roots(default_roots(
+            paths["fleet_path"], paths["profiles_dir"], paths["commands_dir"],
+            paths["states_dir"], paths["logs_dir"], gates_dir=paths["gates_dir"]))
+        # reload each scope in place (reuses the tested per-scope reload + its broadcasts).
+        scopes = {}
+        for sc in ("fleet", "profiles", "commands", "states", "gates", "logs"):
+            try:
+                scopes[sc] = self.reload_config(sc, user=None)
+            except Exception as e:  # noqa: BLE001 — one bad scope must not abort the switch
+                scopes[sc] = f"error: {e}"
+                self.orch._emit(EventType.ERROR,
+                                {"where": "switch_profile", "scope": sc, "error": str(e)})
+        reg.set_active(name, persist=True)
+        self.orch._emit(EventType.CONFIG_RELOADED,
+                        {"scope": "profile", "profile": name,
+                         "summary": f"active config profile → {name}"}, user=user)
+        if self.sync:
+            self.sync.broadcast_profile_changed(name, self.list_profiles()["profiles"])
+        return {"ok": True, "profile": name, "active": name, "scopes": scopes}
+
     # ---- log artifacts (session ZIP) ------------------------------------
     def capture_log_artifacts(self, storage):
         """Snapshot every configured log window into the session's ``artifacts/logs/``
@@ -337,22 +409,36 @@ def _real_factory(fleet, profile_mgr):
 
 
 def create_app(fleet_path=None, profiles_dir=None, commands_dir=None, runs_dir=None,
-               states_dir=None, logs_dir=None, gates_dir=None, mock=False, dry_run=False,
-               poll=True, allow_local=True):
+               states_dir=None, logs_dir=None, gates_dir=None, profile=None, mock=False,
+               dry_run=False, poll=True, allow_local=True):
     here = os.path.dirname(os.path.abspath(__file__))
-    fleet_path = fleet_path or os.path.join(here, "fleet", "fleet.yaml")
-    profiles_dir = profiles_dir or os.path.join(here, "profiles")
-    commands_dir = commands_dir or os.path.join(here, "commands")
     runs_dir = runs_dir or os.path.join(here, "runs")
-    # the States config root: the dir holding the state-source files (ping + cmd). Kept
-    # as networks/ on disk; surfaced as "States" on the Config page.
-    states_dir = states_dir or os.path.join(here, "networks")
-    # the Logs config root: the dir holding the log-window source files (base-station
-    # tails). Surfaced as "Logs" on the Config page; the dashboard's third view.
-    logs_dir = logs_dir or os.path.join(here, "logs")
-    # the Gates config root: the dir holding one health gate per file (gates/*.yaml).
-    # Surfaced as "Gates" on the Config page; drives the per-node gate cells (P8).
-    gates_dir = gates_dir or os.path.join(here, "gates")
+    # Config profiles (P8): every profile — default included — is a subdir of yamls/, with
+    # the same config-root subdirs (fleet/ profiles/ commands/ networks/=States gates/
+    # logs/). The active one is chosen by --profile, else the persisted choice, else
+    # "default". Switching is hot (Config page) and never touches another profile's files.
+    config_profiles = ConfigProfiles(here)
+    active = profile or config_profiles.active
+    if not config_profiles.exists(active):
+        print(f"  [config-profile] unknown profile {active!r}; falling back to 'default'")
+        active = "default"
+    # persist only an *explicit* --profile choice; a passive boot leaves the marker alone.
+    config_profiles.set_active(active, persist=bool(profile))
+    paths = config_profiles.resolve(active)
+    # an explicit per-root CLI flag (--fleet/--profiles-dir/…) overrides just that one root
+    # of the active profile; everything unset comes from yamls/<active>/. Changing a root
+    # needs a restart (only the *active profile* is switchable live, on the Config page).
+    for key, override in (("fleet_path", fleet_path), ("profiles_dir", profiles_dir),
+                          ("commands_dir", commands_dir), ("states_dir", states_dir),
+                          ("gates_dir", gates_dir), ("logs_dir", logs_dir)):
+        if override:
+            paths[key] = override
+    fleet_path = paths["fleet_path"]
+    profiles_dir = paths["profiles_dir"]
+    commands_dir = paths["commands_dir"]
+    states_dir = paths["states_dir"]   # the States root (networks/ on disk)
+    gates_dir = paths["gates_dir"]     # the Gates root (one health gate per file, P8)
+    logs_dir = paths["logs_dir"]       # the Logs root (base-station log windows)
 
     fleet = load_fleet(fleet_path)
     profile_mgr = ProfileManager(profiles_dir)
@@ -416,6 +502,7 @@ def create_app(fleet_path=None, profiles_dir=None, commands_dir=None, runs_dir=N
     ccflet.dry_run = dry_run
     ccflet.fleet_path = fleet_path
     ccflet.config = config_store
+    ccflet.config_profiles = config_profiles
     ccflet.commands = commands
     ccflet.allow_local = allow_local
     ccflet.states_dir = states_dir
@@ -441,6 +528,12 @@ def create_app(fleet_path=None, profiles_dir=None, commands_dir=None, runs_dir=N
                 design_dir=resource("design"))
     app.register_blueprint(web_bp)
     app.ccflet = ccflet
+
+    # the active config profile is available to every template as `active_profile` (the
+    # header badge); it changes live on a profile switch (broadcast: profile_changed).
+    @app.context_processor
+    def _inject_profile():
+        return {"active_profile": ccflet.active_profile()}
 
     if poll:
         orch.start_polling()
@@ -479,6 +572,10 @@ def main():
     p.add_argument("--gates-dir", help="health-gate sources dir (the per-node gate cells)")
     p.add_argument("--logs-dir", help="log-window sources dir (the Logs view)")
     p.add_argument("--runs-dir", help="ops-session storage dir")
+    p.add_argument("--profile",
+                   help="active config profile — the editable-YAML set to use "
+                        "(default: persisted choice, else 'default'; every profile lives "
+                        "under yamls/<name>/). Switchable live on the Config page.")
     p.add_argument("--mock", action="store_true",
                    help="use the simulated fleet backend (no hardware)")
     p.add_argument("--dry-run", action="store_true",
@@ -493,8 +590,8 @@ def main():
         fleet_path=args.fleet, profiles_dir=args.profiles_dir,
         commands_dir=args.commands_dir, runs_dir=args.runs_dir,
         states_dir=args.states_dir, logs_dir=args.logs_dir, gates_dir=args.gates_dir,
-        mock=args.mock, dry_run=args.dry_run, poll=not args.no_poll,
-        allow_local=not args.no_local_commands)
+        profile=args.profile, mock=args.mock, dry_run=args.dry_run,
+        poll=not args.no_poll, allow_local=not args.no_local_commands)
 
     bind_host = "0.0.0.0" if args.public else args.host
 
@@ -509,6 +606,7 @@ def main():
     print(f"""
   ccFleet — Command & Control  [{run_label}]
   fleet : {ccflet.fleet.name}  ({len(ccflet.fleet.nodes)} nodes, variant {ccflet.fleet.default_variant} per-node)
+  config: profile {ccflet.active_profile()}
   {web_line}
   runs  : {ccflet.sessions.runs_dir}
   Ctrl+C to stop
