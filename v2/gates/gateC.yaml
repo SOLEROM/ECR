@@ -1,0 +1,28 @@
+# gates/gateC.yaml — GATE C (check): a per-node value check (variant B only).
+#
+# kind: metric — run `cmd` on the role, pull `fields` out of its output, and pick the first
+# matching `level` (its `when` conditions) → that level's color. `detail` is the value-line
+# shown on the cell (e.g. "value=3"). This is the generic, reconfigurable kind: change the
+# command, the fields, or the thresholds entirely from config.
+#
+#   variants: [B]  → only evaluated for nodes currently in variant B (na otherwise).
+#   mock:          → simulate-only: under --mock the cell is healthy once `up_when` is up.
+gate:
+  key: C
+  label: check
+  kind: metric
+  on: roleA
+  variants: [B]
+  cmd: "cat /tmp/ccflet/check.value 2>/dev/null"   # the node writes its check value here
+  timeout: 6
+  interval: 5
+  parse: regex                                       # regex | json
+  fields:
+    - { name: value, pattern: 'value\s*[=:]\s*(\d+)', type: int }
+  detail: "value={value}"
+  levels:                                            # first match wins
+    - { when: { value: ">=3" }, color: green  }
+    - { when: { value: ">=1" }, color: yellow }
+    - { default: true,          color: red, detail: "no/low check" }
+  mock: { up_when: serviceB, healthy: { value: 3 } }
+  hint: a per-node value check (variant B)

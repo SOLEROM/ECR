@@ -1,0 +1,21 @@
+# gates/gateB.yaml — GATE B (proc): the required processes are running.
+#
+# kind: process — a list of processes that must be up on the target role. Each entry runs
+# `check` (a command template; exit 0 ⇒ running) and is flagged mandatory or not, and may
+# be scoped to certain variants. The colors fold by the flags:
+#   all up → all_up · only an OPTIONAL one down → optional_down · a MANDATORY one down → mandatory_down
+gate:
+  key: B
+  label: proc
+  kind: process
+  on: roleA                 # checked on roleA over the control plane
+  timeout: 8
+  interval: 5
+  check: "pgrep -f {pattern} >/dev/null 2>&1"   # {pattern}/{name} per entry; exit 0 ⇒ up
+  processes:
+    - { name: serviceA, pattern: serviceA, mandatory: true }
+    - { name: serviceB, pattern: serviceB, mandatory: true }
+    # serviceC only runs in variant B (the roleB tier) — present only there:
+    - { name: serviceC, pattern: serviceC, mandatory: true, variants: [B] }
+  colors: { all_up: green, optional_down: yellow, mandatory_down: red }
+  hint: required processes running on the node

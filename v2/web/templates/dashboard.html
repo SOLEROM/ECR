@@ -55,22 +55,13 @@
       <span class="host" data-guipart="24">{{n.host}}</span>
     </div>
     <div class="card-body">
-      <!-- guiPart25 — health gates (A–D); guiPart26 = one gate cell -->
-      <div class="gates" data-guipart="25">
-        {# GEN:identity — gate labels from domain.identity (keys A–D stay) #}
-        {% for g in identity.gates %}{% set lbl = g.key ~ '·' ~ g.label %}
-        <div class="gate na" data-guipart="26" data-gate="{{g.key}}" title="{{lbl}}"><div class="g">{{lbl}}</div><div class="v">—</div></div>
-        {% endfor %}{# /GEN #}
-      </div>
-      <!-- guiPart27 — metrics (service up/down pills + counters); guiPart28 = a pill -->
-      <div class="metrics" data-guipart="27">
-        <span class="m"><span class="pill" data-guipart="28" data-d="serviceA"></span>serviceA</span>
-        <span class="m"><span class="pill" data-d="serviceB"></span>serviceB</span>
-        <span class="m vb-only"><span class="pill" data-d="serviceC"></span>serviceC</span>
-        <span class="m">links <b data-f="links">—</b></span>
-        <span class="m">check <b data-f="check">—</b></span>
-        <span class="m vb-only">signal <b data-f="signal">—</b></span>
-      </div>
+      <!-- guiPart25 — health gates; guiPart26 = one gate cell. Built client-side from
+           /api/gates (the operator-editable gates/ config, P8) so editing a gate YAML +
+           reload changes the cells with no template edit. -->
+      <div class="gates" data-guipart="25" data-gates></div>
+      <!-- guiPart27 — metrics (pills + counters), re-sourced from the gate results
+           (process gates → per-process pills; metric gates → field chips). -->
+      <div class="metrics" data-guipart="27" data-metrics></div>
     </div>
     <!-- guiPart30 — card footer (variant toggle + sequence buttons) -->
     <div class="card-foot" data-guipart="30">
@@ -193,55 +184,33 @@ async function loadGroups() {
   renderGroups((d && d.groups) || []);
 }
 
-// Variant is per-node: apply one card's A/B state + variant-B metric visibility.
-// The serviceC pill / signal only make sense in variant B (the roleB tier).
+// Variant is per-node: apply one card's A/B button state. Which gates/pills appear is
+// driven by the gate results (a gate not applicable to the variant comes back na and is
+// skipped), so there's nothing variant-specific to toggle here beyond the buttons.
 function applyNodeVariant(name, variant) {
   const card = document.getElementById("card-" + name);
   if (!card) return;
   card.dataset.variant = variant;
   card.querySelectorAll(".varseg-node button").forEach(b =>
     b.classList.toggle("active", b.dataset.nvariant === variant));
-  card.querySelectorAll(".vb-only").forEach(e =>
-    e.style.display = (variant === "B") ? "" : "none");
 }
 
-function gateClass(s){ return s==="ok"?"gate ok":s==="warn"?"gate warn":s==="fail"?"gate fail":"gate na"; }
-function gateVal(s){ return s==="ok"?"✓":s==="warn"?"!":s==="fail"?"✗":"—"; }
+let GATE_METAS = [];   // gate cell metas from /api/gates (key/label/kind)
+
+// Build the (empty) gate cells for every card from the gate registry metas.
+function buildGateCells() {
+  document.querySelectorAll(".card [data-gates]").forEach(box =>
+    CCFlet.renderGateCells(box, GATE_METAS));
+}
 
 function applyStatus(ns) {
   const card = document.getElementById("card-" + ns.node);
   if (!card) return;
-  // gates
-  let worst = "na";
-  ["A","B","C","D"].forEach(g => {
-    const cell = card.querySelector(`.gate[data-gate="${g}"]`);
-    const info = (ns.gates || {})[g] || {state:"na", detail:""};
-    cell.className = gateClass(info.state);
-    cell.querySelector(".v").textContent = gateVal(info.state);
-    cell.title = `Gate ${g}: ${info.detail || info.state}`;
-    if (info.state==="fail") worst="fail";
-    else if (info.state==="warn" && worst!=="fail") worst="warn";
-    else if (info.state==="ok" && worst==="na") worst="ok";
-  });
+  const worst = CCFlet.applyGates(card.querySelector("[data-gates]"), ns,
+                                  card.querySelector("[data-metrics]"));
   card.className = "card ovr-" + worst + (card.querySelector(".nodesel").checked ? " sel" : "");
   const dot = document.getElementById("tabdot-" + ns.node);   // mirror health on the tab strip
   if (dot) dot.className = "dot ovr-" + worst;
-  // pills
-  const setPill = (d, up) => {
-    const p = card.querySelector(`.pill[data-d="${d}"]`);
-    if (p) p.className = "pill " + (up ? "up" : "down");
-  };
-  setPill("serviceA", ns.serviceA && ns.serviceA.up);
-  setPill("serviceB", ns.serviceB && ns.serviceB.up);
-  setPill("serviceC", ns.serviceC && ns.serviceC.up);
-  // metrics
-  const links = ns.links ? ns.links.count : 0;
-  card.querySelector('[data-f="links"]').textContent = links + "/" + (ns.expected_links||0);
-  const c1 = ns.check1 || {};
-  card.querySelector('[data-f="check"]').textContent =
-    c1.present ? ("v" + (c1.value ?? "?")) : "—";
-  const signal = (ns.servicec_stats && ns.servicec_stats.present) ? ns.servicec_stats.signal + "dB" : "—";
-  card.querySelector('[data-f="signal"]').textContent = signal;
 }
 
 async function loadStatus() {
@@ -606,11 +575,20 @@ document.getElementById("btnResetOrder").onclick = () => {
   elGrid.querySelectorAll(".card").forEach(wireDrag);
 })();
 
-// seed each card's variant (A/B active state + variant-B metric visibility) from data-variant
+// seed each card's variant (A/B active state) from data-variant
 document.querySelectorAll(".card[data-variant]").forEach(c =>
   applyNodeVariant(c.dataset.node, c.dataset.variant));
 loadGroups();
-loadStatus();
+
+// build the gate cells from /api/gates, then load status (cells must exist first).
+async function initGates() {
+  GATE_METAS = await CCFlet.loadGates();
+  buildGateCells();
+  loadStatus();
+}
+// gates config edited on the Config page → rebuild every card's cells + recolor.
+CCFlet.on("gates_changed", initGates);
+initGates();
 setInterval(loadStatus, 5000);   // safety refresh in addition to push
 </script>
 {% endblock %}

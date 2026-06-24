@@ -8,6 +8,54 @@ from core.orchestrator import Orchestrator
 from core.mock_ssh import MockFleetState, MockSSHClient
 from core.events import EventStream, EventType
 from core.commands import CommandCatalog
+from core.gates_config import GateRegistry
+
+
+def _real_gates_dir(tmp_path):
+    """A tiny real gates/ dir (reach + process + metric) for the non-mock eval path."""
+    gdir = tmp_path / "gates"; gdir.mkdir()
+    (gdir / "gateA.yaml").write_text(yaml.safe_dump(
+        {"gate": {"key": "A", "kind": "reach", "on": "roleA"}}))
+    (gdir / "gateB.yaml").write_text(yaml.safe_dump(
+        {"gate": {"key": "B", "kind": "process", "on": "roleA", "processes": [
+            {"name": "serviceA", "pattern": "serviceA", "mandatory": True},
+            {"name": "serviceB", "pattern": "serviceB", "mandatory": True}]}}))
+    (gdir / "gateD.yaml").write_text(yaml.safe_dump(
+        {"gate": {"key": "D", "kind": "metric", "on": "roleA",
+                  "cmd": "cat /tmp/ccflet/links.count", "parse": "regex",
+                  "fields": [{"name": "peers", "pattern": r"(\d+)", "type": "int"}],
+                  "levels": [{"when": {"peers": ">=1"}, "color": "green"},
+                             {"default": True, "color": "yellow"}]}}))
+    return GateRegistry(str(gdir))
+
+
+def test_evaluate_gates_real_path(fleet, profile_mgr, tmp_path, fake_ssh):
+    # not mock → the orchestrator runs the real transport (connect / pgrep / cat) against
+    # a FakeSSH: serviceB's check fails (mandatory down → B red), the metric reads 3 peers.
+    reg = _real_gates_dir(tmp_path)
+    client = fake_ssh(responses=[("serviceB", ("", "", 1)), ("links.count", ("3", "", 0))])
+    orch = Orchestrator(fleet, profile_mgr, lambda n, r: client, gates=reg)
+    ns = orch.poll_node("d1")
+    assert ns.reachable_roleA is True
+    assert ns.gates["A"]["state"] == "ok"                      # connect succeeded
+    assert ns.gates["B"]["state"] == "fail"                    # serviceB down (mandatory)
+    procs = {p["name"]: p["up"] for p in ns.gates["B"]["processes"]}
+    assert procs == {"serviceA": True, "serviceB": False}
+    assert ns.gates["D"]["state"] == "ok" and ns.gates["D"]["fields"]["peers"] == 3
+
+
+def test_real_path_reachability_short_circuits(fleet, profile_mgr, tmp_path, fake_ssh):
+    reg = _real_gates_dir(tmp_path)
+    client = fake_ssh()
+    client.connect = lambda: False                            # roleA won't connect
+    orch = Orchestrator(fleet, profile_mgr, lambda n, r: client, gates=reg)
+    ns = orch.poll_node("d1")
+    assert ns.reachable_roleA is False
+    assert ns.gates["A"]["state"] == "fail"                   # reach gate down
+    assert ns.gates["B"]["state"] == "fail"                   # role gates short-circuit
+    assert ns.gates["D"]["state"] == "fail"
+    # the short-circuit means no process/metric command was ever run
+    assert client.commands == []
 
 
 def build_orch(fleet, profile_mgr, tmp_path, systemd=True):
@@ -76,9 +124,10 @@ def test_mixed_variants_sequence_per_node(fleet, profile_mgr, tmp_path):
     assert not state.is_up("d2", "serviceC")      # variant A → no serviceC
     assert state.is_up("d1", "serviceA") and state.is_up("d1", "serviceB")
     assert state.is_up("d2", "serviceA") and state.is_up("d2", "serviceB")
-    # cross-variant nodes don't hear each other (one-way links) — d1(B) sees no peers,
-    # since the only other up node d2 is in variant A.
-    assert orch.poll_node("d1").links["count"] == 0
+    # gates reflect each node's own variant: d1 (B) runs the serviceC process check (proc
+    # gate ok with all three up); d2 (A) has no variant-B check gate at all (na).
+    assert orch.poll_node("d1").gates["B"]["state"] == "ok"
+    assert orch.poll_node("d2").gates["C"]["state"] == "na"
 
 
 def test_deploy_sets_deployed(fleet, profile_mgr, tmp_path):
@@ -104,9 +153,7 @@ def test_poll_node_gates_after_bringup(fleet, profile_mgr, tmp_path):
     ns = orch.poll_node("d1")
     assert ns.gates["A"]["state"] == "ok"
     assert ns.gates["B"]["state"] == "ok"
-    # d1 should hear the other 2 nodes
-    assert ns.links["count"] == 2
-    assert ns.gates["D"]["state"] == "ok"
+    assert ns.gates["D"]["state"] == "ok"     # link metric healthy once serviceA is up
 
 
 def test_poll_before_bringup_is_red(fleet, profile_mgr, tmp_path):

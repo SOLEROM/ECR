@@ -25,20 +25,11 @@
               <button data-nvariant="B" class="{{ 'active' if fleet.node_variant(node)=='B' }}">B</button>
             </span></span>
         </div>
-        <!-- guiPart45 — health gates (A–D) -->
-        <div class="gates" id="gates" data-guipart="45" style="margin-top:14px">
-          {# GEN:identity — gate labels from domain.identity (keys A–D stay) #}
-          {% for g in identity.gates %}{% set lbl = g.key ~ '·' ~ g.label %}
-          <div class="gate na" data-gate="{{g.key}}"><div class="g">{{lbl}}</div><div class="v">—</div></div>
-          {% endfor %}{# /GEN #}
-        </div>
-        <!-- guiPart46 — metrics (service pills + counters) -->
-        <div class="metrics" id="metrics" data-guipart="46" style="margin-top:12px">
-          <span class="m"><span class="pill" data-d="serviceA"></span>serviceA</span>
-          <span class="m"><span class="pill" data-d="serviceB"></span>serviceB</span>
-          <span class="m vb-only"><span class="pill" data-d="serviceC"></span>serviceC</span>
-          <span class="m">links <b data-f="links">—</b></span>
-        </div>
+        <!-- guiPart45 — health gates: built client-side from /api/gates (the operator-
+             editable gates/ config, P8) so a gate YAML edit + reload changes the cells. -->
+        <div class="gates" id="gates" data-guipart="45" data-gates style="margin-top:14px"></div>
+        <!-- guiPart46 — metrics, re-sourced from the gate results (process pills + fields) -->
+        <div class="metrics" id="metrics" data-guipart="46" data-metrics style="margin-top:12px"></div>
       </div>
     </div>
 
@@ -137,24 +128,10 @@ function setVariantUI(variant){
   if (!logsForVariant().includes(curLog)) switchLog(logsForVariant()[0]);
 }
 
-function gc(s){ return s==="ok"?"gate ok":s==="warn"?"gate warn":s==="fail"?"gate fail":"gate na"; }
-function gv(s){ return s==="ok"?"✓":s==="warn"?"!":s==="fail"?"✗":"—"; }
-
 function applyStatus(ns){
   if (ns.node !== NODE) return;
   if (ns.variant && ns.variant !== VARIANT) setVariantUI(ns.variant);  // toggled elsewhere
-  ["A","B","C","D"].forEach(g => {
-    const cell = document.querySelector(`#gates .gate[data-gate="${g}"]`);
-    const info = (ns.gates||{})[g] || {state:"na",detail:""};
-    cell.className = gc(info.state); cell.querySelector(".v").textContent = gv(info.state);
-    cell.title = info.detail || info.state;
-  });
-  const sp = (d,up) => { const p=document.querySelector(`#metrics .pill[data-d="${d}"]`);
-    if(p) p.className="pill "+(up?"up":"down"); };
-  sp("serviceA", ns.serviceA&&ns.serviceA.up); sp("serviceB", ns.serviceB&&ns.serviceB.up);
-  sp("serviceC", ns.serviceC&&ns.serviceC.up);
-  document.querySelector('#metrics [data-f="links"]').textContent =
-    (ns.links?ns.links.count:0)+"/"+(ns.expected_links||0);
+  CCFlet.applyGates(document.getElementById("gates"), ns, document.getElementById("metrics"));
 }
 
 // ---- single actions ----
@@ -215,6 +192,13 @@ CCFlet.on("log_line", (d) => { if (d.node===NODE && d.log===curLog) term.writeln
 CCFlet.on("node_status", applyStatus);
 CCFlet.on("node_variant", (d)=>{ if (d.node===NODE) setVariantUI(d.variant); });
 
+// ---- health gates: build the cells from /api/gates, then color from this node's status.
+async function initGates(){
+  CCFlet.renderGateCells(document.getElementById("gates"), await CCFlet.loadGates());
+  CCFlet.api(`/api/node/${NODE}/status`).then(applyStatus);
+}
+CCFlet.on("gates_changed", initGates);   // gate config edited → rebuild + recolor
+
 // ---- custom commands — node-scoped buttons, built from /api/commands ----
 async function loadNodeCommands(){
   const data = await CCFlet.loadCommands();
@@ -237,7 +221,7 @@ loadNodeCommands();
 
 applyVariantVis();
 buildTabs();
-CCFlet.api(`/api/node/${NODE}/status`).then(applyStatus);
+initGates();
 // start streaming the first log once socket is up
 const startStream = () => switchLog(logsForVariant()[0]);
 if (CCFlet.socket && CCFlet.socket.connected) startStream();

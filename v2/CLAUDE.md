@@ -75,11 +75,11 @@ python3 -m venv .venv && .venv/bin/pip install -r requirements.txt   # one-time
 .venv/bin/python app.py --mock          # simulated fleet → http://127.0.0.1:5000
 .venv/bin/python app.py                 # real fleet (edit fleet/fleet.yaml)
 .venv/bin/python app.py --dry-run       # print the real SSH commands, run nothing
-.venv/bin/python -m pytest                  # 260 tests, no network
+.venv/bin/python -m pytest                  # ~290 tests, no network
 .venv/bin/python -m pytest --cov=core       # coverage
 ```
 
-CLI flags: `--host --public --port --fleet <yaml> --profiles-dir --commands-dir --states-dir --logs-dir <dir> --runs-dir --mock --dry-run --no-poll --no-local-commands --debug`. `--public` binds `0.0.0.0` for the LAN (no-auth posture — §8); default bind is `127.0.0.1:5000`.
+CLI flags: `--host --public --port --fleet <yaml> --profiles-dir --commands-dir --states-dir --gates-dir --logs-dir <dir> --runs-dir --mock --dry-run --no-poll --no-local-commands --debug`. `--public` binds `0.0.0.0` for the LAN (no-auth posture — §8); default bind is `127.0.0.1:5000`.
 
 **Launching the dev server from an automated shell:** use `setsid … &` and poll with
 `curl --retry`. A compound command that exits non-zero tears down the backgrounded
@@ -105,10 +105,10 @@ browser ──HTTP/WebSocket──► Flask + SocketIO (web/routes.py, core/sync
                                    │
                               Orchestrator (core/orchestrator.py)  ◄── the engine
              ┌─────────────────────┼───────────────────────────────┐
-        ConnectionPool        sequences/fan-out                 status poller
-        (real | mock)         (variant-aware)                   (collectors→GATE)
+        ConnectionPool        sequences/fan-out                 gate poller
+        (real | mock)         (variant-aware)                   (gates/*.yaml → cells)
              │                       │                                │
-   ssh_client / mock_ssh      supervisor + transfer            status.py (pure)
+   ssh_client / mock_ssh      supervisor + transfer            gates_config (pure)
    (paramiko + jump-host)     (cmd synthesis)                  events/storage/sync
 ```
 
@@ -119,10 +119,11 @@ browser ──HTTP/WebSocket──► Flask + SocketIO (web/routes.py, core/sync
 | `fleet.py` | inventory model + per-node **param derivation** (variant) | **pure** |
 | `profiles.py` | action/collector/log schema + `{param}` render + `via` jump | **pure** |
 | `supervisor.py` | daemon start/stop/status **command synthesis** + parse | **pure** |
-| `status.py` | **generic** fold: `NodeStatus` + `build_status` + `overall_gate` (parsers/GATE rules/thresholds now live in `domain/gates.py`; back-compat shim re-exports them) | **pure** |
+| `status.py` | **generic** container: `NodeStatus` + `overall_gate` rollup (gate *logic* is config-driven — see `gates_config.py`) | **pure** |
+| `gates_config.py` | **config-driven gate** engine (P8): `GateSpec`/`GateRegistry` schema for `gates/*.yaml` (`reach`/`process`/`metric`) + field-extraction + level→color + color→severity | **pure** |
 | `sequences.py` | **generic** sequence engine: reads `domain/sequences.yaml`, extracts ordered steps + enforces ordering invariants | **pure** |
 | `transfer.py` | rsync / scp -O command synthesis + subprocess runner | mostly pure |
-| `orchestrator.py` | fan-out, **variant-aware sequences** (from `domain/sequences.yaml`), conn pool, poller, **`run_custom`** | I/O |
+| `orchestrator.py` | fan-out, **variant-aware sequences** (from `domain/sequences.yaml`), conn pool, **registry-driven gate poller** (`poll_node` → `_eval_reach`/`_eval_process`/`_eval_metric`), **`run_custom`** | I/O |
 | `commands.py` | **operator command catalog** schema (`commands/commands_{host,roleA,roleB}.yaml`) + `{param}` render (P8) | **pure** |
 | `networks.py` | **ping-link** schema (`networks/networks.yaml`) — the *ping* kind of state (P8) | **pure** |
 | `states.py` | **States** umbrella — cmd-state schema (`stateA.yaml`, exit-code→color) + `StateRegistry` merging ping+cmd files into the bar (P8) | **pure** |
@@ -154,14 +155,16 @@ it as whole files while the generic engine (`core/`, `web/`) stays ≈ the templ
 
 | `domain/` file | Owns | Paired with |
 |---|---|---|
-| `gates.py` | collector **parsers** + **GATE A–D rules** + **thresholds** + log tags | `core/status.py` (the fold) |
-| `mock_rules.py` | the `--mock` **producer** side of the string contract (daemon names, command routing, collector/probe text) | `gates.py` parsers — **keep both in sync** |
+| `gates.py` | the `--mock` **log/command vocabulary** for the demo log content (the gate *logic* moved to config — `gates/*.yaml` + `core/gates_config.py`) | `mock_rules.py` (the producers) |
+| `mock_rules.py` | the `--mock` **producer**: supervisor/sequence command routing, the demo live-log content (collector/probe text), and `gate_mock` (the simulate side of the config-driven gates) | `gates.py` vocabulary + `core/gates_config.py` |
 | `sequences.yaml` | variant-aware deploy/bring-up/tear-down **step lists** + invariants | `core/sequences.py` (reads + enforces) |
 | `identity.py` | operator-facing **labels** (app name, brand wordmark, gate/role/service labels) | template `<!-- GEN:identity -->` fences + a Flask context processor (`identity`) |
 
-The `mock_rules.py ↔ gates.py` string contract is the sharpest edge (CLAUDE.md §7): a
-renamed log tag/probe must change on **both** sides. They're co-located in `domain/` so
-a regenerate fixes both at once. **Brand tokens stay** (`ccflet`/`CCFlet`/`/tmp/ccflet`/…).
+The `mock_rules.py ↔ gates.py` string contract (live-log content + supervisor routing) is
+still a sharp edge (CLAUDE.md §7): a renamed log tag must change on **both** sides. They're
+co-located in `domain/` so a regenerate fixes both at once. **Gates no longer use this
+contract** — `gate_mock` keys off the simulated world, not parsed text (see `plan2.md`).
+**Brand tokens stay** (`ccflet`/`CCFlet`/`/tmp/ccflet`/…).
 
 > **Editing `domain/` by hand vs rebuilding.** In *this* template repo, `domain/` holds
 > the default ccFleet behavior — edit it directly like any module. In a **forked app** it
@@ -203,9 +206,16 @@ a regenerate fixes both at once. **Brand tokens stay** (`ccflet`/`CCFlet`/`/tmp/
     (`green·yellow·red·blue·purple·orange·gray`). Opt-in by shipping the file.
   `core/state_monitor.py` pings/runs them and pushes `states_status`. The dir name stays
   `networks/` on disk; it surfaces as **States** on the Config page.
-- **GATE A–D** (`core/status.py`, variant-gated) — A reachability · B processes ·
-  C check (variant B only) · D link. Thresholds are constants at the top of
-  `status.py` (`LINK_FRESH_MS`, `CHECK_GOOD`, `SERVICEC_MIN_UP`, `SIGNAL_OK_RANGE`).
+- **The `gates/` dir (the Config-page "Gates" root)** — the operator's **health gates**,
+  one colored readiness cell per node per file (P8, config over code). Each `gates/*.yaml`
+  is one gate of kind `reach` (a role's reachability), `process` (a list of processes that
+  must run, mandatory/optional + variant-scoped) or `metric` (run a command → extract
+  fields → first matching level → its color). Parsed by `core/gates_config.py`, evaluated
+  per-node by the orchestrator, edited from the **Config** page. Generic defaults: A reach ·
+  B proc · C check (variant B) · D link. Configs pick **named colors**
+  (`green·yellow·red·blue·purple·orange·gray`); the engine derives the `ok/warn/fail/na`
+  **severity** that `core/status.py::overall_gate` rolls into the card color. See
+  `gates/README.md`, `design/07-health-and-gates.md` and `plan2.md`.
 - **Session** = one ops run dir under `runs/`: `manifest.json` + `events.jsonl` +
   `fleet_snapshot.yaml` + `logs/` + `artifacts/`, ZIP-exportable. No retention policy
   and **no UI delete-all** — reset the whole list from a terminal with
@@ -241,23 +251,25 @@ The operator can't touch source, so the logic they tune lives in editable config
 served read-write by the **Config** page (`/config`, the read-write twin of Help):
 
 - **Editable roots** (`core/config_store.py`): `fleet/` · `profiles/` · `commands/` ·
-  `states` (the `networks/` dir) · `logs` (the `logs/` dir — base-station log windows for
+  `states` (the `networks/` dir) · `gates` (the `gates/` dir — one health gate per file) ·
+  `logs` (the `logs/` dir — base-station log windows for
   the Logs view). The store is **path-safe** (registered roots only,
   extension allow-list, no traversal — same discipline as `core/docs.py::safe_resolve`)
   and reads the tree fresh per request.
 - **Validate → backup → write → reload → audit** on every save:
   - *validate first, never persist invalid* — fleet via `fleet.fleet_from_dict`,
     profiles via `profiles.profile_from_dict`, commands via `commands.commands_from_dict`,
-    states via `states.state_file_from_dict` (ping **or** cmd, by shape); YAML errors
-    report a line number.
+    states via `states.state_file_from_dict` (ping **or** cmd, by shape), gates via
+    `gates_config.gate_file_from_dict`; YAML errors report a line number.
   - a timestamped copy of the prior file is written to `<root>/.bak/` (Revert restores
     the newest).
   - **hot-reload, no restart:** `CCFletApp.reload_config(scope)` → `Fleet.reload_from_dict`
     (in-place: orch/factory/mock all hold the same `Fleet` ref; current variant/algo
     preserved if still valid) · `ProfileManager.invalidate` + `Orchestrator.reload_profiles`
     · `CommandCatalog.reload` · `StateRegistry.reload` (in-place; `StateMonitor` holds
-    the same ref, then re-checks) · `MockFleetState.reload` · close the conn pool so
-    changed hosts reconnect.
+    the same ref, then re-checks) · `Orchestrator.reload_gates` (in-place `GateRegistry`,
+    drops the cadence cache, re-polls, `gates_changed` → dashboards rebuild their cells) ·
+    `MockFleetState.reload` · close the conn pool so changed hosts reconnect.
   - `CONFIG_SAVED` + `CONFIG_RELOADED` events → `events.jsonl` (P6).
 - **Custom commands** (`core/commands.py`, `orchestrator.run_custom`): buttons are built
   **client-side** from `GET /api/commands`, so editing a `commands_*.yaml` file + reload
@@ -280,17 +292,21 @@ everything** (P6). Local exec is the higher blast-radius path — it is **echo-o
 to a shared `MockFleetState`. The mock **pattern-matches the real synthesized commands**
 (supervisor start/stop/status, collectors, probes, tails) against an in-memory world —
 so the supervisor, orchestrator and parsers are genuinely exercised; only the wire is
-faked. Bring-up flips services up → peers see each other → collectors emit fresh lines →
-gates go green, exactly like a real bring-up.
+faked. Bring-up flips services up → the proc gate goes green → metric gates light once
+their backing service is up, exactly like a real bring-up.
 
-**When you add or change a remote command, update the mock to recognize it** (or its
-tests will pass while `--mock` shows nothing). The matcher keys off stable substrings
-(e.g. `/tmp/ccflet/<name>.pid`, `setsid nohup`, `links.json`, `serviceB.log`,
-`serviceC.log`, `probeA`/`probeB`). `MockFleetState.set_offline()` simulates an
-unreachable node (red GATE A). **The `mock_ssh.py ↔ status.py` string contract is the
-sharpest edge:** renamed log tags / probe strings / daemon keys must match on both sides
-or `--mock` goes dark while unit tests still pass — verify the live `--mock` boot, not
-just `pytest`.
+**Gates under `--mock` use a dedicated hook**, not the command matcher: `domain/mock_rules.
+gate_mock(state, node, spec)` keys off the simulated world (reachable? daemon up? the
+gate's `mock` block) — so gates have **no** per-command string contract (see `plan2.md`
+§7). `MockFleetState.set_offline()` simulates an unreachable node (red reach gate).
+
+**When you add or change a remote *command* (supervisor/sequence/collector/live-log),
+update the mock to recognize it** (or its tests pass while `--mock` shows nothing). The
+matcher keys off stable substrings (e.g. `/tmp/ccflet/<name>.pid`, `setsid nohup`,
+`links.json`, `serviceB.log`, `serviceC.log`, `probeA`/`probeB`). **The `mock_ssh.py ↔
+domain/gates.py` live-log string contract is still a sharp edge:** renamed log tags /
+daemon keys must match on both sides or the live-log panes go dark while unit tests still
+pass — verify the live `--mock` boot, not just `pytest`.
 
 ---
 
@@ -338,14 +354,16 @@ just `pytest`.
 | add an editable config root / change validation | `config_store.py` (`ROOTS`, `validate`) | `tests/test_config_store.py` |
 | add/adjust a **ping LED** in the States bar | `networks/networks.yaml` (a `links` entry) **from the Config page** — no code | reload re-checks; the LED appears |
 | add/adjust a **command-driven state** (exit-code→color) | `networks/stateA.yaml` (a `probes` entry) **from the Config page** — no code | reload re-checks; the LED appears |
+| add/adjust/retune a **health gate** | the matching `gates/gate*.yaml` (kind `reach`/`process`/`metric`) **from the Config page** — no code | reload re-evaluates; the cell appears |
+| add a new **gate kind** (beyond reach/process/metric) | `core/gates_config.py` (engine) + a runner in `orchestrator._eval_*` + the `domain/mock_rules.gate_mock` branch | `tests/test_gates_config.py` + the mock |
 | add/adjust a **log window** in the Logs view | `logs/logs.yaml` (a `windows` entry: process + base-station log path) **from the Config page** — no code | reload rebuilds the panes; saved to the session ZIP on export |
 | change how base-station logs are tailed / captured | `core/log_stream.py` (`LogStreamManager` / `snapshot_windows`) | `tests/test_routes.py` (logs endpoint + export) |
 | change how states are checked | `state_monitor.py` (`ping_once` / `_run_cmd`) | `tests/test_states.py` (inject a `pinger`/`runner`) |
 | change what hot-reload does | `CCFletApp.reload_config` (app.py) + the per-module `reload_*` hooks | reload test + `--mock` |
 | add/adjust a node action (e.g. a new daemon) | `profiles/{roleA,roleB}.yaml` (+ `supervisor` if a new kind) | teach `mock_ssh.py` the new command; add a test |
 | add a fleet field / derived param | `fleet.py` (`Node`, `params`) | `tests/test_fleet.py` |
-| change a GATE rule / threshold | `domain/gates.py` (constants + `compute_gates`) — keep the `domain/mock_rules.py` producer in sync | `tests/test_status_parsers.py` golden fixtures |
-| add a new collector/parser | `profiles` (collector) + `domain/gates.py` (parser) + `domain/mock_rules.py` (producer) + `orchestrator._collect`/`poll_node` | fixture test + the mock |
+| change a gate rule / threshold | the gate's `gates/gate*.yaml` **from the Config page** (`levels`/`colors`/`processes`/`timeout`) — no code | reload re-evaluates |
+| change the gate-evaluation engine / a kind's transport | `core/gates_config.py` (schema/logic) + `orchestrator._eval_reach/_eval_process/_eval_metric` + `domain/mock_rules.gate_mock` | `tests/test_gates_config.py` + `tests/test_orchestrator.py` + the mock |
 | change deploy/bring-up/tear-down **order** | `domain/sequences.yaml` (step lists + invariants); engine enforces order generically | `tests/test_sequences.py` + `tests/test_orchestrator.py` |
 | build/rebuild an app from a wish list | the Rebuild system — `system/` (the spec) → `./compile.sh …`; see **`CLAUDE_rebuild.md`** | the acceptance gate (`pytest` + `--mock` + `--dry-run`) |
 | relabel the app (name / brand / gate labels) | in this template: `domain/identity.py`; in a fork: `system/layer2.params.yaml` + rebuild | `--mock` (title/wordmark/gate labels) |
@@ -366,7 +384,8 @@ you expect.
 - `FakeSSH` (in `tests/conftest.py`) records commands + returns canned results for
   supervisor tests; the **mock backend** drives orchestrator integration tests.
 - Pure-logic units carry the coverage: `fleet`, `profiles`, `status`, `supervisor`,
-  `storage`, `orchestrator`, `transfer`, `commands`, `networks`, `states`, `config_store`.
+  `storage`, `orchestrator`, `transfer`, `commands`, `networks`, `states`, `gates_config`,
+  `config_store`.
 - I/O shells (`ssh_client`, `sync`, `streaming`) are covered by the `--mock` boot, not
   unit tests — that's the intended tradeoff. If you make one of them non-trivial, add a
   targeted test.

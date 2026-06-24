@@ -44,10 +44,10 @@ you like. The ids are not used by any logic — they're purely for navigation/re
 | guiPart22 | node name link |
 | guiPart23 | node id |
 | guiPart24 | node host (roleA) |
-| guiPart25 | health gates row |
-| guiPart26 | one gate cell |
-| guiPart27 | metrics row |
-| guiPart28 | a service up/down pill |
+| guiPart25 | health gates row (cells built client-side from /api/gates) |
+| guiPart26 | one gate cell (colored by the gate's named color) |
+| guiPart27 | metrics row (re-sourced from gate results: process pills + metric fields) |
+| guiPart28 | a process up/down pill (rendered per process gate entry) |
 | guiPart30 | card footer |
 | guiPart31 | per-node variant toggle (A/B) |
 | guiPart32 | Deploy button |

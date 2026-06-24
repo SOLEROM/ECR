@@ -189,3 +189,59 @@ def stream_line(state, node: str, kind: str) -> str:
         return (check_lines(state, node).splitlines() or [""])[0]
     rx = links_log_tail(state, node, n=1)
     return rx.splitlines()[0] if rx else ""
+
+
+# --- gates (the --mock producer for config-driven gates) --------------------
+def gate_mock(state, node: str, spec) -> dict:
+    """Simulate one config-driven gate (``core/gates_config.GateSpec``) against the
+    in-memory fleet — the ``--mock`` side of the Gates subsystem.
+
+    Unlike the old string-contract producers, this keys off the **simulated world**
+    (reachable? daemon up?), not a parsed command, so the demo stays faithful with no
+    per-command contract to keep in sync (see ``plan2.md`` §7):
+
+      - ``reach``   → ``state.is_reachable`` → the gate's up/down color.
+      - ``process`` → ``state.is_up`` per entry, folded by mandatory flags → so a bring-up
+        flips the proc gate green, the most valuable mock behavior.
+      - ``metric``  → the gate's ``mock.healthy`` fields when its ``mock.up_when`` daemon is
+        up (and the node is reachable), else an empty reading → its ``default`` level
+        (typically red). So a metric goes green only once its backing service is up.
+    """
+    from core import gates_config as GC
+
+    reachable = state.is_reachable(node)
+    if spec.kind == "reach":
+        if reachable:
+            return GC.gate_result(spec, spec.colors.get("up", "green"),
+                                  "reachable (simulated)")
+        return GC.gate_result(spec, spec.colors.get("down", "red"),
+                              "no answer (simulated)")
+    if not reachable:
+        return GC.gate_result(spec, "red", "node unreachable (simulated)")
+
+    if spec.kind == "process":
+        procs, mand_down, opt_down = [], False, False
+        variant = state.node_variant(node)
+        for p in spec.processes:
+            if p.variants is not None and variant not in p.variants:
+                continue                              # process not present in this variant
+            up = bool(state.is_up(node, p.name))
+            procs.append({"name": p.name, "up": up, "mandatory": p.mandatory})
+            if not up:
+                mand_down = mand_down or p.mandatory
+                opt_down = opt_down or not p.mandatory
+        if mand_down:
+            color, detail = spec.colors.get("mandatory_down", "red"), "mandatory process down"
+        elif opt_down:
+            color, detail = spec.colors.get("optional_down", "yellow"), "optional process down"
+        else:
+            color, detail = spec.colors.get("all_up", "green"), "all processes up"
+        return GC.gate_result(spec, color, detail, processes=procs)
+
+    # metric
+    up_when = spec.mock.get("up_when")
+    healthy = up_when is None or bool(state.is_up(node, up_when))
+    fields = dict(spec.mock.get("healthy") or {}) if healthy else {}
+    lvl = GC.evaluate_levels(fields, spec.levels)
+    detail = GC.render_detail(lvl.detail or spec.detail, fields)
+    return GC.gate_result(spec, lvl.color, detail, fields=fields)

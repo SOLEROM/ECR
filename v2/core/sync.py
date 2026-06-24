@@ -130,6 +130,10 @@ class SyncManager:
         """Log-windows config edited (D8): the Logs view rebuilds its panes."""
         self.socketio.emit("logs_changed", {}, room=FLEET_ROOM)
 
+    def broadcast_gates_changed(self):
+        """Gate config edited (P8): dashboards rebuild their gate cells from /api/gates."""
+        self.socketio.emit("gates_changed", {}, room=FLEET_ROOM)
+
     def broadcast_states_status(self, states: list):
         """Base-station status poll result → the States bar under the header. ``states``
         is a list of ``{key,label,kind,color,detail,hint}`` (ping links + cmd states)."""

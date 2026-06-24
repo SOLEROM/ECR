@@ -13,10 +13,12 @@ Roots (the editable logic):
   - ``profiles`` → ``profiles/`` (``roleA.yaml``/``roleB.yaml``) → reload scope ``profiles``
   - ``commands`` → ``commands/`` (``commands_{host,roleA,roleB}.yaml`` + ``*.sh``) → scope ``commands``
   - ``states``   → ``networks/`` (``networks.yaml`` ping + ``stateA.yaml`` cmd) → scope ``states``
+  - ``gates``    → ``gates/`` (``gate*.yaml`` — one health gate per file)  → reload scope ``gates``
   - ``logs``     → ``logs/`` (``logs.yaml`` — base-station log windows)  → reload scope ``logs``
 
 The ``states`` root holds two file *kinds* (ping links + command-driven states); they
 are validated by **shape** (``core/states.state_file_from_dict``), not by a fixed kind.
+The ``gates`` root holds one gate per file, validated by ``core/gates_config`` (P8).
 
 Safety: every read/write is path-resolved under its root (no traversal, no dotfiles,
 extension allow-list). Writes validate first, snapshot the prior file to ``<root>/.bak/``,
@@ -40,6 +42,7 @@ KIND_FLEET = "fleet"
 KIND_PROFILE = "profile"
 KIND_COMMANDS = "commands"
 KIND_STATES = "states"      # ping links + cmd states (validated by shape)
+KIND_GATES = "gates"        # one health gate per file (gates_config)
 KIND_LOGS = "logs"          # base-station log windows (the Logs view)
 KIND_SCRIPT = "script"
 
@@ -61,7 +64,7 @@ class ConfigRoot:
 
 
 def default_roots(fleet_path, profiles_dir, commands_dir=None, states_dir=None,
-                  logs_dir=None):
+                  logs_dir=None, gates_dir=None):
     """Build the standard root set from the app's config paths."""
     roots = [
         ConfigRoot("fleet", "Fleet inventory",
@@ -76,6 +79,9 @@ def default_roots(fleet_path, profiles_dir, commands_dir=None, states_dir=None,
     if states_dir:
         roots.append(ConfigRoot("states", "States", states_dir,
                                  (".yaml", ".yml"), KIND_STATES, "states"))
+    if gates_dir:
+        roots.append(ConfigRoot("gates", "Gates", gates_dir,
+                                 (".yaml", ".yml"), KIND_GATES, "gates"))
     if logs_dir:
         roots.append(ConfigRoot("logs", "Logs", logs_dir,
                                  (".yaml", ".yml"), KIND_LOGS, "logs"))
@@ -117,6 +123,9 @@ def validate_text(kind, text, name=None):
         elif kind == KIND_STATES:
             from . import states as S          # lazy: avoid an import cycle
             S.state_file_from_dict(data, source=name or "states")  # ping or cmd, by shape
+        elif kind == KIND_GATES:
+            from . import gates_config as GC   # lazy: avoid an import cycle
+            GC.gate_file_from_dict(data, source=name or "gates")
         elif kind == KIND_LOGS:
             from . import logs as L            # lazy: avoid an import cycle
             L.logs_from_dict(data, source=name or "logs")

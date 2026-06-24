@@ -23,6 +23,10 @@ from .states import (
     cmd_states_from_dict, state_file_from_dict,
 )
 from .state_monitor import StateMonitor, ping_once
+from .gates_config import (
+    GateRegistry, GateSpec, gate_from_dict, gate_file_from_dict,
+    GATE_KINDS, color_to_severity,
+)
 from .logs import LogWindow, LogsRegistry, logs_from_dict
 from .config_store import ConfigStore, ConfigRoot, default_roots, validate_text
 from .orchestrator import Orchestrator, ActionResult, ConnectionPool
@@ -44,6 +48,8 @@ __all__ = [
     "StateRegistry", "Indicator", "STATE_COLORS",
     "cmd_states_from_dict", "state_file_from_dict",
     "StateMonitor", "ping_once",
+    "GateRegistry", "GateSpec", "gate_from_dict", "gate_file_from_dict",
+    "GATE_KINDS", "color_to_severity",
     "LogWindow", "LogsRegistry", "logs_from_dict",
     "ConfigStore", "ConfigRoot", "default_roots", "validate_text",
     "Orchestrator", "ActionResult", "ConnectionPool",

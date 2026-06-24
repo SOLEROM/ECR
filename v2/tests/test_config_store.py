@@ -31,6 +31,12 @@ BAD_STATES_CMD = ("states:\n  probes:\n"
                   "    - {key: disk, cmd: 'true', return_colors: {0: chartreuse}}\n")
 GOOD_LOGS = "logs:\n  windows:\n    - {key: syslog, process: rsyslogd, path: /var/log/syslog}\n"
 BAD_LOGS = "logs:\n  windows:\n    - {key: syslog, process: rsyslogd}\n"   # missing path
+# the Gates root validates one health gate per file (gates_config):
+GOOD_GATES = "gate:\n  key: A\n  label: reach\n  kind: reach\n  on: roleA\n"
+BAD_GATES = "gate:\n  key: A\n  kind: reach\n  colors: {up: chartreuse}\n"   # bad color
+BAD_GATES_WHEN = ("gate:\n  key: C\n  kind: metric\n  cmd: x\n"
+                  "  fields: [{name: v, pattern: '(\\d+)', type: int}]\n"
+                  "  levels:\n    - {when: {v: '>=1'}, color: green}\n")   # no default level
 
 
 def make_store(tmp_path, dry_run=False):
@@ -86,6 +92,20 @@ def test_validate_good_states_cmd():
 def test_validate_bad_states_cmd():
     res = validate_text("states", BAD_STATES_CMD)
     assert res["ok"] is False and "color" in res["error"]
+
+
+def test_validate_good_gates():
+    assert validate_text("gates", GOOD_GATES)["ok"] is True
+
+
+def test_validate_bad_gates_color():
+    res = validate_text("gates", BAD_GATES)
+    assert res["ok"] is False and "color" in res["error"]
+
+
+def test_validate_bad_gates_missing_default_level():
+    res = validate_text("gates", BAD_GATES_WHEN)
+    assert res["ok"] is False and "default" in res["error"]
 
 
 def test_validate_good_logs():
@@ -144,6 +164,26 @@ def test_logs_root_registered(tmp_path):
     # a good logs file writes; an invalid one (missing path) is rejected before write
     assert store.write_file("logs", "logs.yaml", GOOD_LOGS)["ok"] is True
     assert store.write_file("logs", "logs.yaml", BAD_LOGS)["ok"] is False
+
+
+def test_gates_root_registered(tmp_path):
+    fleet_dir = tmp_path / "fleet"; fleet_dir.mkdir()
+    prof_dir = tmp_path / "profiles"; prof_dir.mkdir()
+    gates_dir = tmp_path / "gates"; gates_dir.mkdir()
+    (fleet_dir / "fleet.yaml").write_text(GOOD_FLEET)
+    (prof_dir / "roleA.yaml").write_text(MIN_PROFILE)
+    (gates_dir / "gateA.yaml").write_text(GOOD_GATES)
+    roots = default_roots(str(fleet_dir / "fleet.yaml"), str(prof_dir),
+                          gates_dir=str(gates_dir))
+    store = ConfigStore(roots)
+    assert store.scope_of("gates") == "gates"
+    gates_root = next(r for r in store.list_tree() if r["key"] == "gates")
+    assert gates_root["label"] == "Gates"
+    assert {f["name"]: f["kind"] for f in gates_root["files"]}["gateA.yaml"] == "gates"
+    # a good gate writes; a bad color is rejected before write; revert restores it
+    assert store.write_file("gates", "gateA.yaml", GOOD_GATES)["ok"] is True
+    assert store.write_file("gates", "gateA.yaml", BAD_GATES)["ok"] is False
+    assert store.revert("gates", "gateA.yaml")["ok"] is True
 
 
 # ---- path safety ------------------------------------------------------------

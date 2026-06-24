@@ -162,6 +162,100 @@
   }
   CCFlet.renderStateLeds = renderStateLeds;
 
+  // ---- health gates (config-driven cells, P8) ----
+  // The gate cells are built CLIENT-SIDE from /api/gates (the operator-editable gates/
+  // config) so editing a gate YAML + reload changes the cells with no template edit —
+  // exactly like the States bar + custom commands. Each node's colors then arrive over
+  // node_status. Colors are the same named set as the States bar; the cell glyph is the
+  // derived severity. All labels/details are operator config → textContent (XSS).
+  const GATE_COLORS = ["green", "yellow", "red", "blue", "purple", "orange", "gray"];
+  const SEV_GLYPH = { ok: "✓", warn: "!", fail: "✗", na: "—" };
+  CCFlet.GATE_COLORS = GATE_COLORS;
+
+  CCFlet.loadGates = async function () {
+    try {
+      const r = await fetch("/api/gates",
+        { headers: { "X-CCFlet-User": JSON.stringify(CCFlet.user) } });
+      return (await r.json()).gates || [];
+    } catch (e) { return []; }
+  };
+
+  // Build empty gate cells into `box` from the gate metas (idempotent — clears first).
+  // applyGates colors them later from a node's status.
+  CCFlet.renderGateCells = function (box, metas) {
+    if (!box) return;
+    box.innerHTML = "";
+    (metas || []).forEach((g) => {
+      const cell = document.createElement("div");
+      cell.className = "gate c-gray";
+      cell.dataset.gate = g.key;
+      const lbl = document.createElement("div");
+      lbl.className = "g";
+      lbl.textContent = g.key + "·" + g.label;
+      const v = document.createElement("div");
+      v.className = "v"; v.textContent = "—";
+      cell.append(lbl, v);
+      cell.title = g.label + (g.hint ? " — " + g.hint : "");
+      box.appendChild(cell);
+    });
+  };
+
+  // Color the gate cells in `box` from a node status `ns`; returns the worst severity for
+  // the card rollup. If `metricsBox` is given, (re)builds the metrics row from gate fields.
+  CCFlet.applyGates = function (box, ns, metricsBox) {
+    let worst = "na";
+    const gates = ns.gates || {};
+    if (box) box.querySelectorAll(".gate").forEach((cell) => {
+      const g = gates[cell.dataset.gate] || { color: "gray", state: "na", detail: "" };
+      const color = GATE_COLORS.includes(g.color) ? g.color : "gray";
+      cell.className = "gate c-" + color;
+      cell.querySelector(".v").textContent = SEV_GLYPH[g.state] || "—";
+      cell.title = (g.label || cell.dataset.gate) +
+        (g.detail ? ": " + g.detail : "") + (g.kind ? " (" + g.kind + ")" : "");
+      const s = g.state;
+      if (s === "fail") worst = "fail";
+      else if (s === "warn" && worst !== "fail") worst = "warn";
+      else if (s === "ok" && worst === "na") worst = "ok";
+    });
+    if (metricsBox) renderGateMetrics(metricsBox, ns);
+    return worst;
+  };
+
+  // Build the metrics row from the gate results: a process gate → one up/down pill per
+  // process; a metric gate → one "name value" chip per extracted field. Re-sourced from
+  // the gates (the old fixed serviceA/B/C + links/check/signal pills are gone, P8).
+  function renderGateMetrics(box, ns) {
+    box.innerHTML = "";
+    const gates = ns.gates || {};
+    Object.keys(gates).forEach((k) => {
+      const g = gates[k];
+      if (!g || g.state === "na") return;
+      (g.processes || []).forEach((p) => {
+        const m = document.createElement("span"); m.className = "m";
+        const pill = document.createElement("span");
+        pill.className = "pill " + (p.up ? "up" : "down");
+        const t = document.createElement("span"); t.textContent = p.name;
+        m.append(pill, t);
+        m.title = p.name + (p.mandatory ? " (required)" : " (optional)") +
+          " — " + (p.up ? "up" : "down");
+        box.appendChild(m);
+      });
+      Object.entries(g.fields || {}).forEach(([fk, fv]) => {
+        const m = document.createElement("span"); m.className = "m";
+        const t = document.createTextNode(fk + " ");
+        const b = document.createElement("b"); b.textContent = String(fv);
+        m.append(t, b);
+        box.appendChild(m);
+      });
+    });
+    if (!box.children.length) {
+      const e = document.createElement("span");
+      e.className = "muted"; e.textContent = "—";
+      box.appendChild(e);
+    }
+  }
+  CCFlet.renderGateMetrics = renderGateMetrics;
+
   // ---- pinned sessions (shared by the Sessions page + the bottom bar) ----
   // The set of session ids the operator pinned to the bottom bar, persisted in
   // localStorage so it survives navigation (the bar is global). The Sessions page

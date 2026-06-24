@@ -16,7 +16,7 @@ HERE = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 
 @pytest.fixture
 def client(tmp_path):
-    for sub in ("fleet", "profiles", "commands", "networks", "logs"):
+    for sub in ("fleet", "profiles", "commands", "networks", "logs", "gates"):
         shutil.copytree(os.path.join(HERE, sub), tmp_path / sub)
     (tmp_path / "runs").mkdir()
     flask_app, _socketio, _cc = appmod.create_app(
@@ -25,6 +25,7 @@ def client(tmp_path):
         commands_dir=str(tmp_path / "commands"),
         states_dir=str(tmp_path / "networks"),
         logs_dir=str(tmp_path / "logs"),
+        gates_dir=str(tmp_path / "gates"),
         runs_dir=str(tmp_path / "runs"),
         mock=True, poll=False)
     flask_app.config["TESTING"] = True
@@ -123,6 +124,37 @@ def test_states_edit_hot_reloads(client):
     assert r.status_code == 200 and r.get_json()["ok"] and r.get_json()["reloaded"]
     labels = [s["label"] for s in client.get("/api/states").get_json()["states"]]
     assert "EdgeLink" in labels
+
+
+# ---- health gates (config-driven) -------------------------------------------
+def test_gates_endpoint_lists(client):
+    body = client.get("/api/gates").get_json()
+    assert body["gates"] and all(g["key"] and g["kind"] in ("reach", "process", "metric")
+                                 for g in body["gates"])
+
+
+def test_gates_drive_node_status(client):
+    # under --mock the gate cells come from the simulate hook; before any bring-up the
+    # proc gate is red/fail and the reach gate green/ok.
+    node = _first_node(client)
+    ns = client.get(f"/api/node/{node}/status").get_json()
+    assert ns["gates"]["A"]["state"] == "ok"           # reachable
+    assert ns["gates"]["B"]["state"] == "fail"         # nothing running yet
+    assert ns["gates"]["A"]["color"] == "green"        # cells carry a named color too
+
+
+def test_gates_edit_hot_reloads(client):
+    # relabel a gate live (read its current label from the API), then confirm /api/gates
+    # reflects it — the same validate→write→reload path as the other config roots.
+    gate = client.get("/api/gates").get_json()["gates"][0]
+    doc = client.get(f"/api/config/file?root=gates&path=gate{gate['key']}.yaml").get_json()
+    new = doc["text"].replace(f"label: {gate['label']}", "label: ready")
+    assert new != doc["text"]
+    r = client.post("/api/config/file",
+                    json={"root": "gates", "path": f"gate{gate['key']}.yaml", "text": new})
+    assert r.status_code == 200 and r.get_json()["ok"] and r.get_json()["reloaded"]
+    labels = [g["label"] for g in client.get("/api/gates").get_json()["gates"]]
+    assert "ready" in labels
 
 
 # ---- Logs view (base-station log windows) -----------------------------------

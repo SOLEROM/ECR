@@ -1,249 +1,47 @@
 """
-domain/gates.py — the per-app health logic (parsers + GATE rules + thresholds).
+domain/gates.py — the ``--mock`` log/command **vocabulary** for the demo fleet.
 
-This is one of the two halves of the **string contract** that the Compiler owns
-(the other is :mod:`domain.mock_rules`, the producer side). Everything here is
-**pure**: parsers turn raw remote text into numbers, and :func:`compute_gates`
-maps a folded :class:`core.status.NodeStatus` to the GATE A–D checklist, gated by
-the node's variant.
+> **Gate *logic* no longer lives here.** Health gates are now operator-editable config
+> under ``gates/`` (one YAML per gate), parsed + evaluated by the generic engine
+> ``core/gates_config.py`` and run by ``core/orchestrator.py`` (config over code, P8 —
+> see ``plan2.md``). The old hard-coded parsers + ``compute_gates`` + thresholds were
+> removed in that refactor.
 
-The *generic folding* (``NodeStatus``, ``build_status``, ``overall_gate``) stays in
-:mod:`core.status`; only the bits that change per app live here, so regenerating
-this file (together with :mod:`domain.mock_rules`) re-emits both sides of the
-contract at once. The four gates are generic placeholders for the demo template:
+What remains is the small set of **strings** the ``--mock`` producer
+(:mod:`domain.mock_rules`) uses to synthesize the demo's *log content* and to **route**
+collector / probe / build commands to the right simulated output. They are the demo's
+log vocabulary — the live-log panes on the node-detail page (``rx`` / ``serviceB`` /
+``serviceC`` tabs) tail these strings under ``--mock`` via ``stream_kind`` /
+``stream_line`` / ``domain_read``. They are *not* a gate parser contract anymore (the
+mock's gate behavior is the kind-aware :func:`domain.mock_rules.gate_mock`, which keys off
+the simulated world, not text).
 
-  - GATE A — reachability (roleA always; roleB + probes in variant B)
-  - GATE B — processes (serviceA + serviceB; serviceC in variant B)
-  - GATE C — check (a per-variant-B sensor/value check; N/A in variant A)
-  - GATE D — link (peer/link liveness; serviceC transport stats in variant B)
+``mock_rules`` imports these from here, so there is one source: the Compiler patches the
+``contract:`` strings (a ``gate-*`` sub-part) and the producer follows. The brand tokens
+``ccflet`` / ``/tmp/ccflet`` stay (CLAUDE.md §8).
 """
 
-import json
-import re
-from typing import Any, Dict, Optional
+# The demo "good" check value the producer prints on a [CHECK] line.
+CHECK_GOOD = 3
 
-# Gate-state vocabulary + the generic NodeStatus container come from the engine.
-# (core.status imports its parsers/compute_gates back from here lazily, so this
-# one-directional import never forms a load-time cycle — see core/status.py.)
-from core.status import NodeStatus, OK, WARN, FAIL, NA, gate as _gate
-
-# --- thresholds (tune per app) ----------------------------------------------
-LINK_FRESH_MS = 1000          # links.json age considered "live"
-CHECK_FRESH_S = 1.0           # check value age considered fresh
-CHECK_GOOD = 3                # the "good" check value (e.g. a full reading)
-SERVICEC_MIN_UP = 15          # serviceC frames/s floor, allow slack
-SIGNAL_OK_RANGE = (-95, -40)  # serviceC signal sane window
-
-# --- string-contract vocabulary (the shared half of the mock ↔ status contract) ---
-# These markers are what the parsers below look for AND what domain.mock_rules emits.
-# mock_rules imports them from here, so there is ONE source: the Compiler patches these
-# constants (the gate-* sub-parts' `contract:` block) and both halves move together —
-# a fork can speak its own vocabulary without the two sides drifting (CLAUDE.md §7).
+# --- log-content vocabulary (what the mock prints into the demo logs) --------
+# These markers are what domain.mock_rules emits into the simulated log streams; the
+# live-log panes tail them. A fork can rename them (Compiler patches the `contract:`
+# block) and the producer follows automatically, since mock_rules imports from here.
 CHECK_TAG = "[CHECK]"           # serviceB.log line carrying the path-1 check value
 CHECK2_TAG = "[CHECK2]"         # the path-2 check value (variant B)
-PROBE_A_READY = "PROBEA: READY" # probe A "ready" marker (GATE A, variant B)
-PROBE_B_OK = "PROBEB_OK"        # probe B "ok" marker (GATE A, variant B)
-CHECK_VALUE_KEY = "value"       # token before the numeric value on a CHECK line (e.g. fix_type)
-SIGNAL_KEY = "signal"           # token before the serviceC signal value (e.g. rssi)
+PROBE_A_READY = "PROBEA: READY" # probe A "ready" marker
+PROBE_B_OK = "PROBEB_OK"        # probe B "ok" marker
+CHECK_VALUE_KEY = "value"       # token before the numeric value on a CHECK line
+SIGNAL_KEY = "signal"           # token before the serviceC signal value
 
-# Mock command-routing markers — domain.mock_rules matches these substrings of the
-# synthesized collector/probe/build commands to decide which simulated output to return.
-# They must be substrings of the matching profile commands, so a fork whose profiles tail
-# different log files / hit different probe endpoints still routes correctly under --mock.
-# mock_rules imports them from here (one source), so the Compiler patches them in one place
-# and the producer follows — the third face of the same mock↔status contract (CLAUDE.md §7).
+# --- command-routing markers (which simulated read a synthesized command maps to) ---
+# Substrings of the matching profile collector/probe/build commands, so a fork whose
+# profiles tail different log files / hit different probe endpoints still routes correctly
+# under --mock. mock_rules imports them from here (one source).
 LINKS_CMD_MARK = "links.json"     # links/peers collector command marker
-CHECK_LOG_MARK = "serviceB.log"   # check (GATE C) collector command marker
-SERVICEC_LOG_MARK = "serviceC.log"  # serviceC stats (GATE D) collector command marker
-PROBE_A_CMD_MARK = "probeA"       # probe A (GATE A) command marker
-PROBE_B_CMD_MARK = "probeB"       # probe B (GATE A) command marker
+CHECK_LOG_MARK = "serviceB.log"   # check collector command marker
+SERVICEC_LOG_MARK = "serviceC.log"  # serviceC stats collector command marker
+PROBE_A_CMD_MARK = "probeA"       # probe A command marker
+PROBE_B_CMD_MARK = "probeB"       # probe B command marker
 BUILD_CMD_MARK = "serviceA"       # serviceA_build (compile) command marker
-
-
-# --- parsers -----------------------------------------------------------------
-def parse_links(text: str, own_id: Optional[int] = None) -> Dict[str, Any]:
-    """
-    Parse link/peer liveness. Prefers serviceA's links.json
-    ({own_id, peers:{id:{last_seen_unix, age_ms}}}); falls back to a recent-log
-    tail (distinct recent `from=<id>`). Returns {source, peers:{id:age_ms|None}, count}.
-    """
-    text = (text or "").strip()
-    if not text:
-        return {"source": None, "peers": {}, "count": 0}
-    # try JSON links.json
-    try:
-        data = json.loads(text)
-        peers_raw = data.get("peers", data) if isinstance(data, dict) else {}
-        peers: Dict[int, Optional[int]] = {}
-        for k, v in peers_raw.items():
-            try:
-                pid = int(k)
-            except (TypeError, ValueError):
-                continue
-            if own_id is not None and pid == own_id:
-                continue
-            if isinstance(v, dict):
-                peers[pid] = v.get("age_ms")
-            elif isinstance(v, (int, float)):
-                peers[pid] = int(v)
-            else:
-                peers[pid] = None
-        return {"source": "links.json", "peers": peers, "count": len(peers)}
-    except (json.JSONDecodeError, ValueError):
-        pass
-    # fall back to a recent-log tail
-    ids = {}
-    for m in re.finditer(r"from=(\d+)", text):
-        pid = int(m.group(1))
-        if own_id is not None and pid == own_id:
-            continue
-        ids[pid] = None
-    return {"source": "log", "peers": ids, "count": len(ids)}
-
-
-def parse_check(text: str, tag: str = CHECK_TAG) -> Dict[str, Any]:
-    """Parse the last `tag` line for a numeric value and age."""
-    text = text or ""
-    last = None
-    for line in text.splitlines():
-        if tag in line:
-            last = line
-    if last is None:
-        return {"present": False, "value": None, "age": None, "raw": ""}
-    val = re.search(rf"{re.escape(CHECK_VALUE_KEY)}\s*[=:]\s*(\d+)", last)
-    age = re.search(r"age\s*[=:]\s*([\d.]+)", last)
-    return {
-        "present": True,
-        "value": int(val.group(1)) if val else None,
-        "age": float(age.group(1)) if age else None,
-        "raw": last.strip(),
-    }
-
-
-def parse_servicec_stats(text: str) -> Dict[str, Any]:
-    """Parse the serviceC 1 Hz stats line (up/down/loop/self/err tx/signal)."""
-    text = text or ""
-    last = None
-    for line in text.splitlines():
-        if "up=" in line:
-            last = line
-    if last is None:
-        return {"present": False}
-
-    def grab(pat, cast=int, default=None):
-        m = re.search(pat, last)
-        return cast(m.group(1)) if m else default
-
-    return {
-        "present": True,
-        "up": grab(r"up=(\d+)"),
-        "down": grab(r"down=(\d+)"),
-        "loop": grab(r"loop=(\d+)"),
-        "self": grab(r"self=(\d+)"),
-        "err_tx": grab(r"\btx=(\d+)"),
-        "signal": grab(rf"{re.escape(SIGNAL_KEY)}=(-?\d+)"),
-        "raw": last.strip(),
-    }
-
-
-def parse_probe_a(text: str) -> bool:
-    """True when probe A reports its ready marker (:data:`PROBE_A_READY`)."""
-    return PROBE_A_READY in (text or "")
-
-
-def parse_probe_b(text: str) -> bool:
-    """True when probe B reports its ok marker (:data:`PROBE_B_OK`)."""
-    return PROBE_B_OK in (text or "")
-
-
-# --- the GATE map ------------------------------------------------------------
-def compute_gates(ns: "NodeStatus") -> Dict[str, Dict[str, str]]:
-    """Map a NodeStatus to GATE A–D, gated by the node's variant."""
-    variant = ns.variant
-    gates: Dict[str, Dict[str, str]] = {}
-
-    # GATE A — reachability
-    if not ns.reachable_roleA:
-        gates["A"] = _gate(FAIL, "roleA unreachable")
-    elif variant == "A":
-        gates["A"] = _gate(OK, "roleA reachable")
-    else:
-        problems = []
-        if ns.reachable_roleB is False:
-            problems.append("roleB unreachable")
-        if ns.probe_a_ok is False:
-            problems.append("probe A not READY")
-        if ns.probe_b_ok is False:
-            problems.append("probe B not OK")
-        if problems:
-            gates["A"] = _gate(FAIL, "; ".join(problems))
-        elif ns.reachable_roleB is None:
-            gates["A"] = _gate(WARN, "roleB not yet probed")
-        else:
-            gates["A"] = _gate(OK, "roleA+roleB, probe A READY, probe B OK")
-
-    # GATE B — processes
-    serviceA_up = bool(ns.serviceA.get("up"))
-    serviceB_up = bool(ns.serviceB.get("up"))
-    b_problems = []
-    if not serviceA_up:
-        b_problems.append("serviceA down")
-    if not serviceB_up:
-        b_problems.append("serviceB down")
-    if variant == "B":
-        serviceC_up = bool(ns.serviceC and ns.serviceC.get("up"))
-        if not serviceC_up:
-            b_problems.append("serviceC down")
-    gates["B"] = _gate(FAIL if b_problems else OK,
-                       "; ".join(b_problems) if b_problems else "serviceA + serviceB up")
-
-    # GATE C — check (variant B only)
-    if variant == "A":
-        gates["C"] = _gate(NA, "no check (variant A)")
-    else:
-        c1, c2 = ns.check1, ns.check2 or {"present": False}
-
-        def fresh(c):
-            return (c.get("present") and c.get("value") == CHECK_GOOD
-                    and (c.get("age") is None or c.get("age") <= CHECK_FRESH_S))
-        if fresh(c1) and fresh(c2):
-            gates["C"] = _gate(OK, f"both checks fresh, value={CHECK_GOOD}")
-        elif c1.get("present") or c2.get("present"):
-            gates["C"] = _gate(WARN, "check present but stale/low-value")
-        else:
-            gates["C"] = _gate(FAIL, "no check")
-
-    # GATE D — link
-    count = ns.links.get("count", 0)
-    expected = ns.expected_links
-    ages = [a for a in ns.links.get("peers", {}).values() if isinstance(a, (int, float))]
-    stale = [a for a in ages if a > LINK_FRESH_MS]
-    if expected <= 0:
-        if count == 0:
-            # single-node fleet (or none expected) — link gate is not applicable
-            gates["D"] = _gate(NA, "no peers expected (single node)")
-            return gates
-        link_ok = True
-        link_detail = f"{count} peer(s)"
-    else:
-        link_ok = count >= expected and not stale
-        link_detail = f"{count}/{expected} peers" + (" (some stale)" if stale else "")
-    if variant == "B":
-        cs = ns.servicec_stats or {"present": False}
-        if cs.get("present"):
-            up = cs.get("up") or 0
-            servicec_ok = (up >= SERVICEC_MIN_UP and (cs.get("self") or 0) == 0
-                           and (cs.get("err_tx") or 0) == 0
-                           and cs.get("signal") is not None
-                           and SIGNAL_OK_RANGE[0] <= cs["signal"] <= SIGNAL_OK_RANGE[1])
-            link_detail += f" · serviceC up={up}/s signal={cs.get('signal')}dB"
-        else:
-            servicec_ok = False
-            link_detail += " · no serviceC stats"
-        link_ok = link_ok and servicec_ok
-    if count == 0 and expected > 0:
-        gates["D"] = _gate(FAIL, link_detail)
-    else:
-        gates["D"] = _gate(OK if link_ok else WARN, link_detail)
-
-    return gates

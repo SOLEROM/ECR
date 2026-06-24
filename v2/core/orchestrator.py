@@ -28,10 +28,20 @@ from .supervisor import Supervisor
 from . import transfer as T
 from . import status as S
 from . import sequences as SEQ
+from . import gates_config as GC
+from .gates_config import GateRegistry
+from .state_monitor import ping_once
 
 MAX_FANOUT = 10
+MAX_GATE_WORKERS = 8
 HEALTH_WAIT_TIMEOUT = 15.0
 HEALTH_WAIT_POLL = 0.4
+
+
+def _default_gates_dir() -> str:
+    """The repo's ``gates/`` dir, resolved from this file (cwd-independent) so an
+    Orchestrator built without an explicit registry (e.g. in tests) still has gates."""
+    return os.path.join(os.path.dirname(os.path.dirname(os.path.abspath(__file__))), "gates")
 
 
 @dataclass
@@ -84,7 +94,8 @@ class ConnectionPool:
 class Orchestrator:
     def __init__(self, fleet, profile_mgr, client_factory,
                  event_stream: Optional[EventStream] = None,
-                 sync_manager=None, dry_run: bool = False):
+                 sync_manager=None, dry_run: bool = False,
+                 gates: Optional[GateRegistry] = None, allow_local: bool = True):
         self.fleet = fleet
         self.profiles = {"roleA": profile_mgr.load("roleA"),
                          "roleB": profile_mgr.load("roleB")}
@@ -92,6 +103,10 @@ class Orchestrator:
         self.events = event_stream
         self.sync = sync_manager
         self.dry_run = dry_run
+        # config-driven health gates (P8 — gates/*.yaml, see plan2.md). The orchestrator
+        # holds the registry by reference so a Config-page edit (reload in place) takes
+        # effect with no restart. Default to the repo gates/ dir when none is injected.
+        self.gates = gates if gates is not None else GateRegistry(_default_gates_dir())
         # variant-aware ordered sequences come from the domain pack
         # (domain/sequences.yaml); their ordering invariants are checked here so a
         # mis-ordered spec fails fast rather than running a bad bring-up.
@@ -99,9 +114,14 @@ class Orchestrator:
         SEQ.validate(self.sequences)
         self._poll_thread: Optional[threading.Thread] = None
         self._poll_stop = threading.Event()
-        self._last_gates: Dict[str, Dict] = {}
+        # change detection for the gate audit/broadcast — keyed on COLORS only, so a
+        # metric's value jitter (same color) doesn't spam GATE_CHANGED.
+        self._last_gate_colors: Dict[str, Dict[str, str]] = {}
+        # per-gate cadence: when each (node, gate) last ran + its cached result, so a slow
+        # gate honors its own `interval` instead of running every poll tick.
+        self._gate_last_run: Dict[tuple, float] = {}
+        self._gate_cache: Dict[tuple, Dict] = {}
         self.statuses: Dict[str, S.NodeStatus] = {}
-        self.poll_interval = 3.0
         # guards the status dicts (poll thread writes, web thread reads)
         self._status_lock = threading.Lock()
         # one lock per node so a node can't run two sequences at once
@@ -111,7 +131,7 @@ class Orchestrator:
         # operator command catalog (D8) — wired by configure_commands()
         self.commands = None
         self.commands_dir = None
-        self.allow_local = True
+        self.allow_local = allow_local
         self.runs_dir = None
         self.mock = False
 
@@ -133,6 +153,14 @@ class Orchestrator:
         """
         self.profiles = {"roleA": profile_mgr.load("roleA"),
                          "roleB": profile_mgr.load("roleB")}
+
+    def reload_gates(self):
+        """Re-read the gate registry in place after gates/*.yaml changed (P8). The
+        registry object is shared by reference, so this is enough; we also drop the
+        per-gate cadence cache so every gate re-evaluates on the next poll."""
+        self.gates.reload()
+        self._gate_last_run.clear()
+        self._gate_cache.clear()
 
     def sync_node_locks(self):
         """Ensure a per-node lock exists for every current fleet node (after a
@@ -483,56 +511,10 @@ class Orchestrator:
             lambda n, user=None: self.deploy(n, build=build, user=user),
             node_names, user, stagger=0)
 
-    # ---- status polling --------------------------------------------------
-    def poll_node(self, node_name: str) -> S.NodeStatus:
-        node = self.fleet.get(node_name)
-        variant = self.fleet.node_variant(node_name)
-        params = self.fleet.params(node)
-        raw: Dict[str, Any] = {}
-        aclient = self.pool.get(node_name, "roleA")
-        reachable = aclient.connect()
-        raw["reachable_roleA"] = reachable
-        if reachable:
-            raw["serviceA"] = self._status_of(node_name, "roleA", "serviceA_status")
-            raw["serviceB"] = self._status_of(node_name, "roleA", "serviceB_status")
-            raw["links_text"] = self._collect(node_name, "roleA", "links")
-            raw["check1_text"] = self._collect(node_name, "roleA", "check1")
-            if variant == "B":
-                raw["check2_text"] = raw["check1_text"]  # [CHECK2] lines share serviceB.log
-                bclient = self.pool.get(node_name, "roleB")
-                raw["reachable_roleB"] = bclient.connect()
-                if raw["reachable_roleB"]:
-                    raw["serviceC"] = self._status_of(node_name, "roleB", "serviceC_status")
-                    raw["servicec_text"] = self._collect(node_name, "roleB", "servicec")
-                    raw["probe_a_text"] = self._exec_text(node_name, "roleB", "probeA_status")
-                    raw["probe_b_text"] = self._exec_text(node_name, "roleB", "probeB_status")
-        expected = max(0, len(self.fleet.nodes) - 1)
-        ns = S.build_status(node_name, variant, raw, expected_links=expected, own_id=node.id)
-        with self._status_lock:
-            self.statuses[node_name] = ns
-        self._publish_status(ns)
-        return ns
-
-    def _status_of(self, node, role, action_name) -> dict:
-        res = self.run_action_silent(node, role, action_name)
-        return res.extra if res.extra else {"up": False}
-
-    def _collect(self, node, role, collector_name) -> str:
-        prof = self.profiles[role]
-        coll = prof.collectors.get(collector_name)
-        if not coll:
-            return ""
-        params = self.fleet.params(self.fleet.get(node))
-        cmd = P.substitute(coll.command, params)
-        client = self.pool.get(node, role)
-        return client.execute(cmd, timeout=coll.timeout).stdout
-
-    def _exec_text(self, node, role, action_name) -> str:
-        res = self.run_action_silent(node, role, action_name)
-        return res.stdout
-
+    # ---- status polling (config-driven gates, P8) ------------------------
     def run_action_silent(self, node_name, role, action_name) -> ActionResult:
-        """Run an action without emitting audit events (used by the poller)."""
+        """Run a profile action without emitting audit events (utility for callers that
+        want raw output, e.g. a manual status probe)."""
         prof = self.profiles.get(role)
         node = self.fleet.get(node_name)
         if not prof or not node:
@@ -544,23 +526,223 @@ class Orchestrator:
         action = P.render_action(action, params)
         return self._dispatch(node, role, action, params)
 
-    def _publish_status(self, ns: S.NodeStatus):
+    @property
+    def poll_interval(self) -> float:
+        """Background poll cadence = the most-frequent gate's interval (floored at 1s)."""
+        return self.gates.poll_interval
+
+    def _mock_state(self, node_name: str):
+        """The shared MockFleetState if this node's clients are mock clients, else None
+        (so gate evaluation can short-circuit to the simulate hook, like _do_transfer)."""
+        client = self.pool.get(node_name, "roleA")
+        return getattr(client, "state", None)
+
+    def poll_node(self, node_name: str, force: bool = True) -> S.NodeStatus:
+        """Evaluate every configured gate for one node and publish the result.
+
+        Reachability is checked once per role per tick and **short-circuits** that role's
+        gates (an unreachable role's gates fail immediately instead of stacking timeouts).
+        Each due gate (its `interval` elapsed, or `force`) runs in parallel; not-due gates
+        keep their cached result. Under --mock/--dry-run nothing touches the wire — the
+        gate is produced from the simulated world (domain.mock_rules.gate_mock) or a
+        healthy preview."""
+        node = self.fleet.get(node_name)
+        variant = self.fleet.node_variant(node_name)
+        params = self.fleet.params(node)
+        mstate = self._mock_state(node_name)
+        simulate = self.mock or self.dry_run
+
+        # which roles do the applicable gates need? (always probe roleA — control plane)
+        applicable = [s for s in self.gates.specs if s.applies_to(variant)]
+        needed_roles = {"roleA"} | {s.on for s in applicable if s.on in ("roleA", "roleB")}
+        reach = self._tick_reachability(node_name, needed_roles, mstate, simulate)
+
+        now = time.time()
+        gates: Dict[str, Dict[str, Any]] = {}
+        due: List[GC.GateSpec] = []
+        for spec in self.gates.specs:
+            if not spec.applies_to(variant):
+                gates[spec.key] = GC.na_result(spec)
+                continue
+            key = (node_name, spec.key)
+            if not force and (key in self._gate_cache) and \
+                    (now - self._gate_last_run.get(key, 0.0) < spec.interval):
+                gates[spec.key] = self._gate_cache[key]   # not due → reuse cached
+            else:
+                due.append(spec)
+
+        if due:
+            evaluated = self._evaluate_due(node_name, due, params, variant, reach,
+                                           mstate, simulate)
+            for spec in due:
+                res = evaluated[spec.key]
+                gates[spec.key] = res
+                self._gate_cache[(node_name, spec.key)] = res
+                self._gate_last_run[(node_name, spec.key)] = now
+
+        ns = S.NodeStatus(node=node_name, variant=variant,
+                          reachable_roleA=bool(reach.get("roleA", False)),
+                          reachable_roleB=reach.get("roleB"), gates=gates)
         with self._status_lock:
-            prev = self._last_gates.get(ns.node)
-            changed = prev != ns.gates
+            self.statuses[node_name] = ns
+        self._publish_status(ns)
+        return ns
+
+    def _tick_reachability(self, node_name, roles, mstate, simulate) -> Dict[str, bool]:
+        """Connect each needed role once for this tick → {role: reachable}. roleB is only
+        recorded if a gate needs it (so a variant-A node reports roleB as None)."""
+        reach: Dict[str, bool] = {}
+        for role in ("roleA", "roleB"):
+            if role not in roles:
+                continue
+            if mstate is not None:
+                reach[role] = bool(mstate.is_reachable(node_name))
+            elif simulate:
+                reach[role] = True                  # dry-run preview, no wire
+            else:
+                try:
+                    reach[role] = bool(self.pool.get(node_name, role).connect())
+                except Exception:                   # noqa: BLE001 — a connect crash → down
+                    reach[role] = False
+        return reach
+
+    def _evaluate_due(self, node_name, due, params, variant, reach, mstate, simulate
+                      ) -> Dict[str, Dict[str, Any]]:
+        """Evaluate the due gates in parallel (a slow gate can't stall the others)."""
+        out: Dict[str, Dict[str, Any]] = {}
+
+        def one(spec):
+            try:
+                return self._eval_gate(node_name, spec, params, reach, mstate, simulate)
+            except Exception as e:                  # noqa: BLE001 — never 500 a poll
+                return GC.gate_result(spec, "gray", f"eval error: {e}")
+
+        if len(due) == 1:
+            out[due[0].key] = one(due[0])
+            return out
+        with ThreadPoolExecutor(max_workers=min(MAX_GATE_WORKERS, len(due))) as ex:
+            futs = {ex.submit(one, s): s for s in due}
+            for fut, spec in futs.items():
+                out[spec.key] = fut.result()
+        return out
+
+    def _eval_gate(self, node_name, spec, params, reach, mstate, simulate
+                   ) -> Dict[str, Any]:
+        """One gate → its GateResult dict. Mock / dry-run short-circuit to a simulated
+        result; otherwise run the kind's real transport (connect / ping / exec / local)."""
+        if mstate is not None:
+            from domain import mock_rules as MR
+            return MR.gate_mock(mstate, node_name, spec)
+        if simulate:
+            return self._simulated_gate(spec, variant=self.fleet.node_variant(node_name))
+        # real evaluation — short-circuit role gates on an unreachable role
+        if spec.on in ("roleA", "roleB") and not reach.get(spec.on, False):
+            return GC.gate_result(spec, "red", f"{spec.on} unreachable")
+        if spec.kind == "reach":
+            return self._eval_reach(node_name, spec, params, reach)
+        if spec.kind == "process":
+            return self._eval_process(node_name, spec, params)
+        return self._eval_metric(node_name, spec, params)
+
+    def _simulated_gate(self, spec, variant) -> Dict[str, Any]:
+        """A healthy preview (dry-run with the real factory, no mock world)."""
+        if spec.kind == "reach":
+            return GC.gate_result(spec, spec.colors.get("up", "green"),
+                                  "reachable (simulated)")
+        if spec.kind == "process":
+            procs = [{"name": p.name, "up": True, "mandatory": p.mandatory}
+                     for p in spec.processes
+                     if p.variants is None or variant in p.variants]
+            return GC.gate_result(spec, spec.colors.get("all_up", "green"),
+                                  "all processes up (simulated)", processes=procs)
+        fields = dict(spec.mock.get("healthy") or {})
+        lvl = GC.evaluate_levels(fields, spec.levels)
+        return GC.gate_result(spec, lvl.color,
+                              GC.render_detail(lvl.detail or spec.detail, fields),
+                              fields=fields)
+
+    def _eval_reach(self, node_name, spec, params, reach) -> Dict[str, Any]:
+        if spec.method == "ping":
+            if not self.allow_local:
+                return GC.gate_result(spec, "gray", "ping disabled (--no-local-commands)")
+            host = P.substitute(spec.host, params) if spec.host else None
+            up = bool(host and ping_once(host, spec.timeout))
+            return GC.gate_result(spec, spec.colors.get("up" if up else "down",
+                                  "green" if up else "red"),
+                                  (f"{host} reachable" if up else f"{host} no reply"))
+        up = bool(reach.get(spec.on, False))
+        return GC.gate_result(spec, spec.colors.get("up" if up else "down",
+                              "green" if up else "red"),
+                              f"{spec.on} {'reachable' if up else 'unreachable'}")
+
+    def _eval_process(self, node_name, spec, params) -> Dict[str, Any]:
+        client = self.pool.get(node_name, spec.on)
+        variant = self.fleet.node_variant(node_name)
+        procs, mand_down, opt_down = [], False, False
+        for p in spec.processes:
+            if p.variants is not None and variant not in p.variants:
+                continue
+            cmd = P.substitute(spec.check, {**params, "pattern": p.pattern, "name": p.name})
+            try:
+                up = client.execute(cmd, timeout=int(spec.timeout)).exit_code == 0
+            except Exception:                       # noqa: BLE001 — exec failure → down
+                up = False
+            procs.append({"name": p.name, "up": up, "mandatory": p.mandatory})
+            if not up:
+                mand_down = mand_down or p.mandatory
+                opt_down = opt_down or not p.mandatory
+        if mand_down:
+            color, detail = spec.colors.get("mandatory_down", "red"), "mandatory process down"
+        elif opt_down:
+            color, detail = spec.colors.get("optional_down", "yellow"), "optional process down"
+        else:
+            color, detail = spec.colors.get("all_up", "green"), "all processes up"
+        return GC.gate_result(spec, color, detail, processes=procs)
+
+    def _eval_metric(self, node_name, spec, params) -> Dict[str, Any]:
+        cmd = P.substitute(spec.cmd, params)
+        if spec.on == "base":
+            if not self.allow_local:
+                return GC.gate_result(spec, "gray", "local exec disabled (--no-local-commands)")
+            from . import local_exec as L
+            out = L.run_local(cmd, timeout=int(spec.timeout), dry_run=False).stdout
+        else:
+            out = self.pool.get(node_name, spec.on).execute(cmd, timeout=int(spec.timeout)).stdout
+        fields = GC.extract_fields(out, spec.fields, spec.parse)
+        lvl = GC.evaluate_levels(fields, spec.levels)
+        return GC.gate_result(spec, lvl.color,
+                              GC.render_detail(lvl.detail or spec.detail, fields),
+                              fields=fields)
+
+    def _publish_status(self, ns: S.NodeStatus):
+        """Audit + broadcast. GATE_CHANGED (the whole map) fires only when a gate's COLOR
+        changes (so metric value-jitter at the same color is quiet); each individual color
+        flip also drops a human-readable session-log line (P6, like STATE_CHANGED)."""
+        colors = {k: g.get("color") for k, g in ns.gates.items()}
+        with self._status_lock:
+            prev = self._last_gate_colors.get(ns.node)
+            changed = prev != colors
+            flips = ([] if prev is None else
+                     [(k, prev.get(k), c) for k, c in colors.items()
+                      if prev.get(k) is not None and prev.get(k) != c])
             if changed:
-                self._last_gates[ns.node] = ns.gates
+                self._last_gate_colors[ns.node] = colors
         if changed:
             self._emit(EventType.GATE_CHANGED, {"node": ns.node, "gates": ns.gates})
             if self.sync:
                 self.sync.broadcast_gate(ns.node, ns.gates)
+        for key, oldc, newc in flips:
+            g = ns.gates.get(key, {})
+            self._emit(EventType.NOTE, {"text":
+                f"GATE {key} ({g.get('label', key)}) on {ns.node} {oldc}→{newc}"
+                + (f" ({g.get('detail')})" if g.get("detail") else "")})
         if self.sync:
             self.sync.broadcast_node_status(ns.to_dict())
 
     def poll_all(self):
         for n in self.fleet.names():
             try:
-                self.poll_node(n)
+                self.poll_node(n, force=False)
             except Exception as e:  # noqa: BLE001
                 self._emit(EventType.ERROR, {"node": n, "error": str(e)})
 

@@ -3,7 +3,7 @@ noteId: "651ed7706b0311f1b060577f73b9a94a"
 tags: []
 title: "Health Monitoring & Gates"
 order: 7
-summary: "How raw collector output becomes per-node status and the four readiness gates A–D."
+summary: "How operator-editable gate config becomes per-node readiness cells (config over code, P8)."
 
 ---
 
@@ -11,89 +11,121 @@ summary: "How raw collector output becomes per-node status and the four readines
 
 ## Overview
 
-Health is the operator's primary readout: is the fleet ready? `core/status.py`
-turns raw collector output (link tables, value-check lines, serviceC stats, probe
-state) into a structured `NodeStatus`, then reduces it to four **gates** — A, B, C,
-D — each `ok` / `warn` / `fail` / `na`. The whole module is **pure**: parsers and
-gate logic are functions of their text inputs, tested against golden fixtures, with
-no network or clock.
+Health is the operator's primary readout: is the fleet ready? Each node carries a row of
+**gates** — colored readiness cells — that roll up into the node's card color. Gates are
+**operator-editable config, not code** (P8): each `gates/*.yaml` is one gate that declares
+*what to run, where, and how the result maps to a color*. The operator retunes a host, a
+process list, a command or a threshold from the **Config** page (the **Gates** root);
+saves are validated → backed up → hot-reloaded → audited with no restart — exactly like
+the States bar and the custom-command catalog.
 
-## The parsers
+The generic engine `core/gates_config.py` parses + validates the YAML and evaluates the
+pure parts (field extraction, condition/level evaluation, color→severity); the
+orchestrator (`core/orchestrator.py`) runs the transport per node and folds the results
+into a `NodeStatus`. The UI builds the gate cells client-side from `GET /api/gates`, so a
+gate edit changes the cells with no template change.
 
-| Parser | Reads | Produces |
+## The three gate kinds
+
+| Kind | Runs | Colors by |
 |---|---|---|
-| `parse_links` | `links.json` (preferred) or an rx-log tail (fallback) | peer/link ids + ages, count, `source` |
-| `parse_check` | a tagged value line (`[CHECK]` / `[CHECK2]`) | present, `value`, `age` |
-| `parse_servicec_stats` | the serviceC 1 Hz stats line | up/down rates, loop/self, errors, `signal` |
-| `parse_probe_a` | the probe A status output | probe A READY? |
-| `parse_probe_b` | the probe B status output | probe B OK? |
+| **reach** | a role's reachability — an SSH control-plane connect (the truth, also the short-circuit) or an ICMP `ping` of a host | `colors.{up,down}` |
+| **process** | a list of processes that must be running (a `check` command per entry, exit 0 ⇒ up); each entry mandatory or optional, optionally variant-scoped | all up → `all_up`; an optional one down → `optional_down`; a mandatory one down → `mandatory_down` |
+| **metric** | a command whose output yields **fields** (regex groups or JSON keys, typed int/float/bool) | the first matching **level** (`when` conditions) → its color |
 
-`parse_links` is dual-source by necessity: `links.json` is preferred when serviceA
-writes it; otherwise it falls back to parsing a recent rx-log tail (coarser ages).
-The result records which `source` was live, so the UI can say so.
+A gate declares common keys (`key`, `label`, `kind`, `on` ∈ `base|roleA|roleB`,
+`variants`, `timeout`, `interval`, `hint`) plus its kind's fields. See `gates/README.md`
+for the full schema-by-example and the four generic starter gates (A reach · B proc ·
+C check · D link).
 
-## The four gates (`compute_gates`, variant-gated)
+## Colors → severity → card rollup
 
-| Gate | Means | Variant A | Variant B |
-|---|---|---|---|
-| **A** | Reachability | roleA reachable | roleA + roleB reachable, probe A READY, probe B OK |
-| **B** | Processes up | serviceA + serviceB | serviceA + serviceB + serviceC |
-| **C** | Value check fresh | `na` (no check) | both checks present with the good value |
-| **D** | Link liveness | enough fresh peers/links | same, plus serviceC transport stats; demoted to `warn` if stats missing |
-
-`build_status` assembles a `NodeStatus` from raw inputs; `overall_gate` reduces a
-node's four gates to one headline state (worst-of, with `na` ignored). A fleet view
-rolls those up across nodes.
-
-## Thresholds (constants at the top of `status.py`)
+Configs speak **named colors** (the same palette as the States LEDs:
+`green/yellow/red/blue/purple/orange/gray`). The engine derives a **severity** for the
+rollup so the operator only ever picks colors:
 
 ```
-LINK_FRESH_MS   = 1000      # a link seen within 1 s counts as live
-CHECK_GOOD      = 3         # the "good" check value
-SERVICEC_MIN_UP = 15        # serviceC frames/s floor, slack allowed
-SIGNAL_OK_RANGE = (-95, -40)  # serviceC signal sane window
+green → ok      yellow|orange → warn      red → fail      gray → na      blue|purple → ok
 ```
 
-## Gate logic nuances (encoded + tested)
+Each gate result carries **both** `color` (what the cell shows) and `state` (the
+severity). `core/status.py::overall_gate` rolls the per-gate severities into one card
+color (worst wins; `na` ignored), unchanged from before — so a config-only change of
+colors never breaks the card coloring or the Compiler acceptance gate.
 
-- **Single-node fleet → GATE D is `na`**, not `warn` (no peers are *expected*).
-- **Partial links** (some but not all expected peers) → `warn`, not `fail`.
-- **Variant B with no serviceC stats** → link gate demoted to `warn` (can't confirm
-  the transport).
-- **GATE C only applies in variant B**; in variant A it is `na` by design (no check).
+## Evaluation (the orchestrator poll)
+
+`Orchestrator.poll_node` is registry-driven:
+
+1. **Per-tick reachability, once per role.** Each needed role is connected once and the
+   result cached for the tick. An `ssh` reach gate is the control-plane truth and
+   **short-circuits**: if a role won't connect, that role's gates resolve to `fail`
+   immediately instead of stacking SSH timeouts.
+2. **Each due gate** (its `interval` elapsed, or a forced/on-demand poll) is evaluated in
+   parallel via its kind's runner; not-due gates keep their cached result. A gate not
+   applicable to the node's current variant is `na`.
+3. **Publish.** A `NodeStatus{node, variant, reachable_*, gates}` is stored and broadcast.
+   `GATE_CHANGED` fires only when a gate's **color** changes (so metric value-jitter at the
+   same color is quiet), and each individual color flip drops a human-readable session-log
+   line (P6, like the States bar's `STATE_CHANGED`).
+
+The poll loop ticks at the most-frequent gate's `interval` (floored at 1 s).
+
+## Mock & dry-run
+
+Under `--mock`/`--dry-run` nothing touches the wire. `--mock` produces each gate from the
+**simulated world** via `domain/mock_rules.gate_mock` (reach → reachable?, process → the
+simulated daemons so a bring-up flips the proc gate green, metric → the gate's `mock`
+block once its `up_when` daemon is up). `--dry-run` with the real factory returns a healthy
+preview. The local `base`/`ping` path is echo-only under mock/dry-run and disabled by
+`--no-local-commands`.
+
+## Purity split (what's tested where)
+
+- **Pure** (`core/gates_config.py`, `tests/test_gates_config.py`): schema parse/validate
+  per kind, field extraction (regex + json), condition + level evaluation, color→severity,
+  variant gating, the registry (load / reload-in-place / cross-file key clash).
+- **Orchestrator** (`tests/test_orchestrator.py`): the registry-driven evaluation against
+  the mock + a fake client — reach short-circuit, per-gate interval, the real
+  process/metric/reach transport.
+- **HTTP** (`tests/test_routes.py`): `/api/gates`, gate-driven node status, gate hot-reload.
 
 ## Key decisions
 
-- **Pure parsers + pure gates.** All the logic that decides "ready / not ready"
-  is a function of text, so it's covered by golden-fixture unit tests
-  (`tests/test_status_parsers.py`) — the part most likely to be subtly wrong.
-- **Four orthogonal gates** rather than one opaque "healthy" flag — an operator
-  sees *which* dimension failed (reachability vs processes vs check vs link).
-- **`warn` is a first-class state** — partial/uncertain conditions don't read as
-  hard failures, so the operator isn't blocked by a single missing link.
-- **Variant-gating built into the gates** so variant A isn't penalized for not
-  running serviceC or the value check.
+- **Config over code (P8).** The logic that decides "ready / not ready" is YAML an
+  operator edits in the browser, not a code change + recompile. The engine is generic and
+  template-level; the four gate YAMLs are the per-app slice.
+- **The `mock ↔ status` string contract dissolves for gates.** The mock no longer parses
+  gate text; `gate_mock` keys off the simulated world. (The live-log producers still use
+  the demo log vocabulary in `domain/gates.py`.)
+- **Severity == the old gate vocabulary**, so the card rollup, the tab dots and the
+  Compiler acceptance gate are unchanged.
+- **`warn` is first-class** (yellow/orange) — uncertain conditions don't read as hard
+  failures.
+- **Variant-gating** (`variants:` on a gate or a process entry) so a variant isn't
+  penalized for a check it doesn't run.
 
 ## Constraints / Invariants
 
-- Gate semantics are variant-aware; any new check must declare how it behaves in
-  A vs B.
-- Thresholds are named constants, never inline magic numbers.
-- Parsers must tolerate missing/garbage input and return a "not present" result
-  rather than throwing (field logs are messy).
+- Keys and reach hosts are validated as bare tokens; an unknown color is a line-numbered
+  error on save, not a dark cell.
+- A node-derived `{param}` substituted into a gate command is a bare token (shell safety);
+  a gate takes no free-form runtime args.
+- `on:` is a YAML 1.1 boolean-key gotcha (a bare `on:` key parses as `True`); the parser
+  reads it anyway, so the operator can write `on: roleA` naturally.
 
 ## Change points
 
-- **Tune a threshold** (freshness, check value, signal window) → the constants block
-  in `status.py`, then update the golden fixtures.
-- **Change a gate rule** → `compute_gates` (+ fixture in `test_status_parsers.py`).
-- **Add a new health signal** → a parser in `status.py` + a collector in the profile
-  ([04](04-action-profiles.md)) + wire it into `poll_node` ([05](05-orchestration-and-sequencing.md)).
-- **Change the overall roll-up** → `overall_gate`.
+- **Tune / add / remove a gate** → edit `gates/*.yaml` from the Config page (no code).
+- **Add a new gate kind** (beyond reach/process/metric) → `core/gates_config.py`
+  (engine) + a runner in `core/orchestrator.py` + the mock branch in
+  `domain/mock_rules.gate_mock`.
+- **Change the overall roll-up** → `overall_gate` in `core/status.py`.
 
 ## Open questions
 
-- Gate state is computed each poll with no hysteresis; a flapping signal flaps the
-  gate. Debounce/hold-down is a candidate if field noise proves annoying.
-- The rx-log fallback ages are coarser than `links.json`; whether to visually flag
-  "degraded link source" in the UI is open.
+- Gate state is computed each poll with no hysteresis; a flapping signal flaps the cell.
+  Debounce/hold-down is a candidate if field noise proves annoying.
+- Mesh peer-age freshness and the v2v probes that the *old* hard-coded gates encoded are
+  not expressed by the generic starter gates; a fork re-adds them as a `metric` gate or a
+  States LED.

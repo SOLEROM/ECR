@@ -1,0 +1,20 @@
+# gates/gateA.yaml — GATE A (reach): is the node reachable?
+#
+# A gate is one colored readiness cell on every node card/detail. Each gates/*.yaml is ONE
+# gate; edit them from the Config page (the "Gates" root) — saves are validated, backed up,
+# hot-reloaded and audited, with no restart (config over code, P8). See gates/README.md.
+#
+# kind: reach — reports a role's reachability.
+#   method: ssh  → the control-plane connect (the truth; also short-circuits the role's
+#                  other gates if it can't connect). method: ping → ICMP-ping `host`.
+gate:
+  key: A
+  label: reach
+  kind: reach
+  on: roleA                 # the role whose reachability this gate reports
+  method: ssh               # ssh (control-plane truth) | ping (uses host/timeout below)
+  host: "{HOST_A}"          # ping target when method: ping (per-node param; {SUBNET}/{HOST_A}…)
+  timeout: 5                # seconds to wait for the connect / ping reply
+  interval: 5               # re-check cadence (seconds)
+  colors: { up: green, down: red }
+  hint: node reachable over the control plane

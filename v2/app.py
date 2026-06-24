@@ -29,7 +29,7 @@ from core import (
     Fleet, load_fleet, ProfileManager, SessionManager, SessionManifest,
     EventStream, EventType, Orchestrator, StreamManager, init_sync, now_iso,
     render_connection, CommandCatalog, ConfigStore, default_roots,
-    StateRegistry, StateMonitor, LogsRegistry, LogStreamManager,
+    StateRegistry, StateMonitor, GateRegistry, LogsRegistry, LogStreamManager,
 )
 from core.mock_ssh import MockFleetState, MockSSHClient
 
@@ -69,6 +69,9 @@ class CCFletApp:
         self.states_dir = None
         self.states = None          # StateRegistry (ping links + cmd states → the bar)
         self.state_monitor = None   # StateMonitor (poller → states_status broadcast)
+        # config-driven health gates (the per-node gate cells): set by create_app
+        self.gates_dir = None
+        self.gates = None           # GateRegistry (gates/*.yaml; held by the orchestrator)
         # base-station log windows (the Logs view): set by create_app
         self.logs_dir = None
         self.logs = None            # LogsRegistry (the configured log windows)
@@ -230,7 +233,7 @@ class CCFletApp:
     def reload_config(self, scope, user=None):
         """Hot-reload one config scope in place — no restart (D8).
 
-        scope ∈ {fleet, profiles, commands, states, logs}. Returns a short human summary.
+        scope ∈ {fleet, profiles, commands, states, gates, logs}. Returns a short summary.
         Every holder (orchestrator, client factory, mock state) shares the same `Fleet`
         object, so the fleet is reloaded in place; the connection pool is closed so
         changed hosts reconnect lazily.
@@ -268,6 +271,15 @@ class CCFletApp:
             if self.state_monitor:
                 self.run_bg(self.state_monitor.poll_once)
             summary = f"states · {len(self.states.indicators)} indicators"
+        elif scope == "gates":
+            # Reload the gate registry in place (the orchestrator holds the same ref),
+            # drop the cadence cache, re-poll so cells reflect the edit, and tell open
+            # dashboards to rebuild their gate cells from the fresh /api/gates.
+            self.orch.reload_gates()
+            self.run_bg(self.orch.poll_all)
+            if self.sync:
+                self.sync.broadcast_gates_changed()
+            summary = f"gates · {len(self.gates.specs)} gates"
         elif scope == "logs":
             # Reload the window list in place (the streamer holds the same registry ref),
             # then tell the Logs view to rebuild its panes from the fresh /api/logs.
@@ -325,8 +337,8 @@ def _real_factory(fleet, profile_mgr):
 
 
 def create_app(fleet_path=None, profiles_dir=None, commands_dir=None, runs_dir=None,
-               states_dir=None, logs_dir=None, mock=False, dry_run=False, poll=True,
-               allow_local=True):
+               states_dir=None, logs_dir=None, gates_dir=None, mock=False, dry_run=False,
+               poll=True, allow_local=True):
     here = os.path.dirname(os.path.abspath(__file__))
     fleet_path = fleet_path or os.path.join(here, "fleet", "fleet.yaml")
     profiles_dir = profiles_dir or os.path.join(here, "profiles")
@@ -338,6 +350,9 @@ def create_app(fleet_path=None, profiles_dir=None, commands_dir=None, runs_dir=N
     # the Logs config root: the dir holding the log-window source files (base-station
     # tails). Surfaced as "Logs" on the Config page; the dashboard's third view.
     logs_dir = logs_dir or os.path.join(here, "logs")
+    # the Gates config root: the dir holding one health gate per file (gates/*.yaml).
+    # Surfaced as "Gates" on the Config page; drives the per-node gate cells (P8).
+    gates_dir = gates_dir or os.path.join(here, "gates")
 
     fleet = load_fleet(fleet_path)
     profile_mgr = ProfileManager(profiles_dir)
@@ -346,9 +361,11 @@ def create_app(fleet_path=None, profiles_dir=None, commands_dir=None, runs_dir=N
     session_mgr = SessionManager(runs_dir)
     commands = CommandCatalog(commands_dir)   # loads commands_{host,roleA,roleB}.yaml
     states = StateRegistry(states_dir)        # loads networks.yaml (ping) + stateA.yaml (cmd)
+    gates = GateRegistry(gates_dir)           # loads gates/*.yaml (config-driven gates)
     logs = LogsRegistry(logs_dir)             # loads logs.yaml (base-station log windows)
     config_store = ConfigStore(
-        default_roots(fleet_path, profiles_dir, commands_dir, states_dir, logs_dir),
+        default_roots(fleet_path, profiles_dir, commands_dir, states_dir, logs_dir,
+                      gates_dir=gates_dir),
         dry_run=dry_run)
 
     app = Flask(__name__,
@@ -375,7 +392,8 @@ def create_app(fleet_path=None, profiles_dir=None, commands_dir=None, runs_dir=N
     else:
         factory = _real_factory(fleet, profile_mgr)
 
-    orch = Orchestrator(fleet, profile_mgr, factory, sync_manager=sync, dry_run=dry_run)
+    orch = Orchestrator(fleet, profile_mgr, factory, sync_manager=sync, dry_run=dry_run,
+                        gates=gates, allow_local=allow_local)
     orch.configure_commands(commands, commands_dir, allow_local=allow_local,
                             runs_dir=runs_dir, mock=mock)
     # base-station status LEDs: simulated (healthy) under mock/dry-run, exactly like
@@ -403,6 +421,8 @@ def create_app(fleet_path=None, profiles_dir=None, commands_dir=None, runs_dir=N
     ccflet.states_dir = states_dir
     ccflet.states = states
     ccflet.state_monitor = state_monitor
+    ccflet.gates_dir = gates_dir
+    ccflet.gates = gates
     ccflet.logs_dir = logs_dir
     ccflet.logs = logs
     ccflet.start_session("boot")
@@ -456,6 +476,7 @@ def main():
     p.add_argument("--profiles-dir", help="role profiles dir")
     p.add_argument("--commands-dir", help="operator command catalog dir")
     p.add_argument("--states-dir", help="status-LED state sources dir (the States bar)")
+    p.add_argument("--gates-dir", help="health-gate sources dir (the per-node gate cells)")
     p.add_argument("--logs-dir", help="log-window sources dir (the Logs view)")
     p.add_argument("--runs-dir", help="ops-session storage dir")
     p.add_argument("--mock", action="store_true",
@@ -471,7 +492,7 @@ def main():
     app, socketio, ccflet = create_app(
         fleet_path=args.fleet, profiles_dir=args.profiles_dir,
         commands_dir=args.commands_dir, runs_dir=args.runs_dir,
-        states_dir=args.states_dir, logs_dir=args.logs_dir,
+        states_dir=args.states_dir, logs_dir=args.logs_dir, gates_dir=args.gates_dir,
         mock=args.mock, dry_run=args.dry_run, poll=not args.no_poll,
         allow_local=not args.no_local_commands)
 

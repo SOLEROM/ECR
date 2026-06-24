@@ -197,6 +197,16 @@ def api_states_refresh():
     return jsonify({"success": True})
 
 
+# ============ health gates (config-driven; the per-node gate cells, P8) =======
+@web.route("/api/gates")
+def api_gates():
+    """The configured gate metas (key/label/kind/on/variants) so the dashboard builds its
+    gate cells client-side — editing a ``gates/*.yaml`` + reload changes the cells with no
+    template edit. The live colors arrive per node over ``node_status``/``gate_changed``."""
+    gates = ccflet.gates
+    return jsonify({"gates": gates.metas() if gates else []})
+
+
 @web.route("/api/fleet/variant", methods=["POST"])
 def api_set_variant():
     """Bulk: set **every** node to one variant. Not used by the UI (variant is

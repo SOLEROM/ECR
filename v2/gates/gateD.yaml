@@ -1,0 +1,22 @@
+# gates/gateD.yaml — GATE D (link): peer / link liveness.
+#
+# kind: metric (see gateC.yaml) — a second example of the generic metric kind, active in
+# both variants, reading a peer count and coloring by it. Replace the command + fields for
+# your own link/health signal.
+gate:
+  key: D
+  label: link
+  kind: metric
+  on: roleA
+  cmd: "cat /tmp/ccflet/links.count 2>/dev/null"     # the node writes its peer count here
+  timeout: 6
+  interval: 5
+  parse: regex
+  fields:
+    - { name: peers, pattern: '(\d+)', type: int }
+  detail: "{peers} peer(s)"
+  levels:
+    - { when: { peers: ">=1" }, color: green  }
+    - { default: true,          color: yellow, detail: "no peers" }
+  mock: { up_when: serviceA, healthy: { peers: 2 } }
+  hint: peer / link liveness
