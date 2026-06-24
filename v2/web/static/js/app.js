@@ -134,8 +134,9 @@
   // return_colors map). gray = not checked yet. All labels/details/hints are
   // operator-authored config → rendered with textContent (XSS).
   const STATE_COLORS = ["green", "yellow", "red", "blue", "purple", "orange", "gray"];
-  function renderStateLeds(states) {
-    const box = document.getElementById("stateLeds");
+  // Render the LED list into ONE container (the header States bar, or a per-node
+  // "States" box). All labels/details/hints are operator config → textContent (XSS).
+  function renderStateLedsInto(box, states) {
     if (!box) return;
     box.innerHTML = "";
     if (!states || !states.length) {
@@ -159,6 +160,13 @@
         (s.hint ? " · " + s.hint : "");
       box.appendChild(led);
     });
+  }
+  // Fan the latest states into EVERY registered container: the header bar (#stateLeds)
+  // and any per-node "States" box on the node detail page — both tagged [data-state-leds].
+  function renderStateLeds(states) {
+    CCFlet._states = states;
+    document.querySelectorAll("[data-state-leds]").forEach((box) =>
+      renderStateLedsInto(box, states));
   }
   CCFlet.renderStateLeds = renderStateLeds;
 

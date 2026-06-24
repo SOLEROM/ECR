@@ -65,11 +65,13 @@ you like. The ids are not used by any logic — they're purely for navigation/re
 | Part | Region |
 |---|---|
 | guiPart41 | page breadcrumb / title |
-| guiPart42 | left column |
-| guiPart43 | node info panel |
-| guiPart44 | per-node variant toggle |
-| guiPart45 | health gates |
-| guiPart46 | metrics |
+| guiPart42 | left column (flex-stacks the group panels: node · gates · states · actions · commands) |
+| guiPart43 | node info panel (identity + addressing) |
+| guiPart124 | gates panel (node detail) — numbered out-of-sequence to stay globally unique |
+| guiPart125 | states panel (node detail: per-node variant toggle + base-station States LEDs) |
+| guiPart44 | per-node variant toggle (inside the states panel) |
+| guiPart45 | health gates (inside the gates panel) |
+| guiPart46 | metrics (inside the gates panel) |
 | guiPart47 | actions panel |
 | guiPart48 | an action group |
 | guiPart49 | sequence buttons |
