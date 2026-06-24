@@ -330,9 +330,8 @@ body.embed h1.page { display: none; }
 /* Node detail left column: stack the group panels (node · gates · states · actions ·
    commands) with one even gap instead of per-panel margins. */
 .node-col { display: flex; flex-direction: column; gap: 16px; }
-/* Per-node States box: the LEDs reuse the header States-bar styling; the variant seg
-   sits in its own kv row above them. */
-.node-states { gap: 8px 14px; }
+/* Per-node States box: the variant seg sits in a kv row, with the per-process up/down
+   pills (the same .metrics row as the grid card) below it. */
 .action-group { margin-bottom: 14px; }
 .action-group .lbl { font-size: 11px; text-transform: uppercase; color: var(--dim);
   letter-spacing: .5px; margin-bottom: 7px; }

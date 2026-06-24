@@ -217,7 +217,9 @@ def gate_mock(state, node: str, spec) -> dict:
         return GC.gate_result(spec, spec.colors.get("down", "red"),
                               "no answer (simulated)")
     if not reachable:
-        return GC.gate_result(spec, "red", "node unreachable (simulated)")
+        # process gate still lists its processes (all down) so the LEDs render red
+        procs = GC.down_processes(spec, state.node_variant(node))
+        return GC.gate_result(spec, "red", "node unreachable (simulated)", processes=procs)
 
     if spec.kind == "process":
         procs, mand_down, opt_down = [], False, False

@@ -23,22 +23,22 @@
       </div>
     </div>
 
-    <!-- guiPart124 — gates panel: config-driven health cells + metrics re-sourced from the
-         gate results. Cells are built client-side from /api/gates (the operator-editable
-         gates/ config, P8) so a gate YAML edit + reload changes them with no template edit. -->
+    <!-- guiPart124 — gates panel: config-driven health cells, built client-side from
+         /api/gates (the operator-editable gates/ config, P8) so a gate YAML edit + reload
+         changes them with no template edit. (The process-gate up/down pills moved to the
+         States panel below — guiPart46.) -->
     <div class="panel" id="guiPart124" data-guipart="124">
       <h3>Gates</h3>
       <div class="body">
         <!-- guiPart45 — health gates -->
         <div class="gates" id="gates" data-guipart="45" data-gates></div>
-        <!-- guiPart46 — metrics, re-sourced from the gate results (process pills + fields) -->
-        <div class="metrics" id="metrics" data-guipart="46" data-metrics style="margin-top:12px"></div>
       </div>
     </div>
 
-    <!-- guiPart125 — states panel: the per-node variant (A/B) toggle plus the base-station
-         States LEDs. The LEDs mirror the header States bar — app.js renders the same
-         /api/states + states_status feed into every [data-state-leds] box. -->
+    <!-- guiPart125 — states panel: the per-node variant (A/B) toggle plus the per-process
+         up/down pills (re-sourced from the gate results) — the same row as the grid card.
+         The base-station States LEDs stay only in the header bar (guiPart04) and are NOT
+         duplicated here. -->
     <div class="panel" id="guiPart125" data-guipart="125">
       <h3>States</h3>
       <div class="body">
@@ -50,11 +50,9 @@
               <button data-nvariant="B" class="{{ 'active' if fleet.node_variant(node)=='B' }}">B</button>
             </span></span>
         </div>
-        <!-- base-station status LEDs (ping links + cmd states), same source as the header
-             States bar; seeded from /api/states and updated live over states_status. -->
-        <div class="states-leds node-states" data-state-leds style="margin-top:12px">
-          <span class="muted states-empty">checking…</span>
-        </div>
+        <!-- guiPart46 — per-process up/down pills + metric fields, re-sourced from the gate
+             results (the same row as the grid card). Built client-side by applyGates. -->
+        <div class="metrics" id="metrics" data-guipart="46" data-metrics style="margin-top:12px"></div>
       </div>
     </div>
 
@@ -149,13 +147,19 @@ function setVariantUI(variant){
   document.querySelectorAll(".varseg-node button").forEach(b =>
     b.classList.toggle("active", b.dataset.nvariant === variant));
   applyVariantVis();
+  // re-render the per-process LEDs for the new variant (serviceC appears in B), keeping
+  // the last-known up/down colors.
+  CCFlet.renderGateMetrics(document.getElementById("metrics"), LAST_NS, variant);
   buildTabs();
   if (!logsForVariant().includes(curLog)) switchLog(logsForVariant()[0]);
 }
 
+let LAST_NS = {};   // last status — kept so a variant toggle can re-render the LEDs
+
 function applyStatus(ns){
   if (ns.node !== NODE) return;
   if (ns.variant && ns.variant !== VARIANT) setVariantUI(ns.variant);  // toggled elsewhere
+  LAST_NS = ns;
   CCFlet.applyGates(document.getElementById("gates"), ns, document.getElementById("metrics"));
 }
 
@@ -220,6 +224,9 @@ CCFlet.on("node_variant", (d)=>{ if (d.node===NODE) setVariantUI(d.variant); });
 // ---- health gates: build the cells from /api/gates, then color from this node's status.
 async function initGates(){
   CCFlet.renderGateCells(document.getElementById("gates"), await CCFlet.loadGates());
+  // seed the per-process LEDs from config (always visible, default down/red) before the
+  // first status lands; the poll below recolors them.
+  CCFlet.renderGateMetrics(document.getElementById("metrics"), LAST_NS, VARIANT);
   CCFlet.api(`/api/node/${NODE}/status`).then(applyStatus);
 }
 CCFlet.on("gates_changed", initGates);   // gate config edited → rebuild + recolor

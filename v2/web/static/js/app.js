@@ -161,8 +161,9 @@
       box.appendChild(led);
     });
   }
-  // Fan the latest states into EVERY registered container: the header bar (#stateLeds)
-  // and any per-node "States" box on the node detail page — both tagged [data-state-leds].
+  // Fan the latest states into every registered container tagged [data-state-leds].
+  // These base-station LEDs live only in the header States bar (#stateLeds) — the node
+  // detail page shows per-process pills there instead, not a duplicate of this feed.
   function renderStateLeds(states) {
     CCFlet._states = states;
     document.querySelectorAll("[data-state-leds]").forEach((box) =>
@@ -191,6 +192,7 @@
   // Build empty gate cells into `box` from the gate metas (idempotent — clears first).
   // applyGates colors them later from a node's status.
   CCFlet.renderGateCells = function (box, metas) {
+    if (metas) CCFlet._gateMetas = metas;   // cache for renderGateMetrics (pre-render pills)
     if (!box) return;
     box.innerHTML = "";
     (metas || []).forEach((g) => {
@@ -225,29 +227,44 @@
       else if (s === "warn" && worst !== "fail") worst = "warn";
       else if (s === "ok" && worst === "na") worst = "ok";
     });
-    if (metricsBox) renderGateMetrics(metricsBox, ns);
+    if (metricsBox) renderGateMetrics(metricsBox, ns, ns.variant);
     return worst;
   };
 
-  // Build the metrics row from the gate results: a process gate → one up/down pill per
-  // process; a metric gate → one "name value" chip per extracted field. Re-sourced from
-  // the gates (the old fixed serviceA/B/C + links/check/signal pills are gone, P8).
-  function renderGateMetrics(box, ns) {
+  // Build the metrics row. The per-process LEDs come from the gate CONFIG (the cached
+  // /api/gates metas) so they are **always visible for every node** — default down/red —
+  // exactly like before the gates moved to config; the live gate result only recolors
+  // them (up=green) once a poll lands. Variant-scoped processes (e.g. serviceC in B) show
+  // only for the node's current `variant`. Metric-gate fields are dynamic values, so those
+  // still come from the live result only. `ns` may be {} for the initial pre-status render.
+  function renderGateMetrics(box, ns, variant) {
+    if (!box) return;
     box.innerHTML = "";
+    ns = ns || {};
     const gates = ns.gates || {};
-    Object.keys(gates).forEach((k) => {
-      const g = gates[k];
-      if (!g || g.state === "na") return;
-      (g.processes || []).forEach((p) => {
+    const metas = CCFlet._gateMetas || [];
+    // process pills — sourced from config, colored from the live result when present.
+    metas.forEach((meta) => {
+      if (meta.kind !== "process") return;
+      const live = {};
+      ((gates[meta.key] || {}).processes || []).forEach((p) => { live[p.name] = p; });
+      (meta.processes || []).forEach((p) => {
+        if (variant && p.variants && p.variants.indexOf(variant) < 0) return;
+        const up = live[p.name] ? !!live[p.name].up : false;   // default down (red)
         const m = document.createElement("span"); m.className = "m";
         const pill = document.createElement("span");
-        pill.className = "pill " + (p.up ? "up" : "down");
+        pill.className = "pill " + (up ? "up" : "down");
         const t = document.createElement("span"); t.textContent = p.name;
         m.append(pill, t);
         m.title = p.name + (p.mandatory ? " (required)" : " (optional)") +
-          " — " + (p.up ? "up" : "down");
+          " — " + (up ? "up" : "down");
         box.appendChild(m);
       });
+    });
+    // metric-gate field chips — live values only (skip not-applicable gates).
+    Object.keys(gates).forEach((k) => {
+      const g = gates[k];
+      if (!g || g.state === "na") return;
       Object.entries(g.fields || {}).forEach(([fk, fv]) => {
         const m = document.createElement("span"); m.className = "m";
         const t = document.createTextNode(fk + " ");
@@ -256,11 +273,6 @@
         box.appendChild(m);
       });
     });
-    if (!box.children.length) {
-      const e = document.createElement("span");
-      e.className = "muted"; e.textContent = "—";
-      box.appendChild(e);
-    }
   }
   CCFlet.renderGateMetrics = renderGateMetrics;
 

@@ -135,10 +135,21 @@ class GateSpec:
         return self.variants is None or variant in self.variants
 
     def to_meta(self) -> Dict[str, Any]:
-        """What the UI needs to render the cell + tooltip (operator-authored → textContent)."""
-        return {"key": self.key, "label": self.label, "kind": self.kind,
-                "on": self.on, "hint": self.hint,
-                "variants": list(self.variants) if self.variants is not None else None}
+        """What the UI needs to render the cell + tooltip (operator-authored → textContent).
+
+        A process gate also carries its configured ``processes`` (name/mandatory/variants)
+        so the client can render the per-process LEDs **up front** (always visible, default
+        down/red) from config — colored later by the live gate result — instead of only
+        showing them once a poll has landed."""
+        m = {"key": self.key, "label": self.label, "kind": self.kind,
+             "on": self.on, "hint": self.hint,
+             "variants": list(self.variants) if self.variants is not None else None}
+        if self.kind == "process":
+            m["processes"] = [
+                {"name": p.name, "mandatory": p.mandatory,
+                 "variants": list(p.variants) if p.variants is not None else None}
+                for p in self.processes]
+        return m
 
 
 # --- parsing / validation (pure) --------------------------------------------
@@ -509,3 +520,16 @@ def gate_result(spec: GateSpec, color: str, detail: str = "",
 def na_result(spec: GateSpec, detail: str = "n/a (variant)") -> Dict[str, Any]:
     """A gate that doesn't apply to the node's current variant → a gray ``na`` cell."""
     return gate_result(spec, "gray", detail)
+
+
+def down_processes(spec: GateSpec, variant: str) -> List[Dict[str, Any]]:
+    """The process gate's configured processes (variant-scoped) all marked **down**.
+
+    Used when a node is unreachable: the per-process LEDs still render (red) from the
+    configured list instead of collapsing to a blank row. Returns ``[]`` for any
+    non-process gate, so callers can pass it through unconditionally."""
+    if spec.kind != "process":
+        return []
+    return [{"name": p.name, "up": False, "mandatory": p.mandatory}
+            for p in spec.processes
+            if p.variants is None or variant in p.variants]

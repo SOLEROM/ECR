@@ -56,6 +56,10 @@ def test_real_path_reachability_short_circuits(fleet, profile_mgr, tmp_path, fak
     assert ns.gates["D"]["state"] == "fail"
     # the short-circuit means no process/metric command was ever run
     assert client.commands == []
+    # …but the process gate still LISTS its configured processes (all down) so the
+    # per-process LEDs render red instead of collapsing to a blank row.
+    procs = {p["name"]: p["up"] for p in ns.gates["B"]["processes"]}
+    assert procs == {"serviceA": False, "serviceB": False}
 
 
 def build_orch(fleet, profile_mgr, tmp_path, systemd=True):
@@ -181,6 +185,9 @@ def test_offline_node_unreachable(fleet, profile_mgr, tmp_path):
     ns = orch.poll_node("d3")
     assert ns.reachable_roleA is False
     assert ns.gates["A"]["state"] == "fail"
+    # an offline node still lists its process LEDs (all down) — same as the real path
+    procs = {p["name"]: p["up"] for p in ns.gates["B"]["processes"]}
+    assert procs and all(up is False for up in procs.values())
 
 
 def test_dry_run_does_not_change_state(fleet, profile_mgr, tmp_path):

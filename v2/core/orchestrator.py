@@ -637,9 +637,12 @@ class Orchestrator:
             return MR.gate_mock(mstate, node_name, spec)
         if simulate:
             return self._simulated_gate(spec, variant=self.fleet.node_variant(node_name))
-        # real evaluation — short-circuit role gates on an unreachable role
+        # real evaluation — short-circuit role gates on an unreachable role. A process
+        # gate still lists its configured processes (all down) so the per-process LEDs
+        # render red instead of vanishing to a blank row.
         if spec.on in ("roleA", "roleB") and not reach.get(spec.on, False):
-            return GC.gate_result(spec, "red", f"{spec.on} unreachable")
+            procs = GC.down_processes(spec, self.fleet.node_variant(node_name))
+            return GC.gate_result(spec, "red", f"{spec.on} unreachable", processes=procs)
         if spec.kind == "reach":
             return self._eval_reach(node_name, spec, params, reach)
         if spec.kind == "process":

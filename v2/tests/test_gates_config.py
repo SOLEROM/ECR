@@ -65,6 +65,24 @@ def test_process_gate_parses_entries_and_variants():
     assert g.check == GC.DEFAULT_CHECK
 
 
+def test_process_gate_meta_carries_processes():
+    # the UI pre-renders the per-process LEDs from the meta (always visible, default down),
+    # so a process gate's meta must list its processes (name/mandatory/variants).
+    g = GC.gate_from_dict({"gate": {"key": "B", "kind": "process", "on": "roleA",
+        "processes": [
+            {"name": "serviceA", "mandatory": True},
+            {"name": "serviceC", "mandatory": True, "variants": ["B"]},
+        ]}})
+    meta = g.to_meta()
+    assert meta["processes"] == [
+        {"name": "serviceA", "mandatory": True, "variants": None},
+        {"name": "serviceC", "mandatory": True, "variants": ["B"]},
+    ]
+    # non-process gates carry no process list at all.
+    assert "processes" not in GC.gate_from_dict(
+        {"gate": {"key": "A", "kind": "reach"}}).to_meta()
+
+
 def test_process_gate_needs_processes():
     with pytest.raises(ValueError):
         GC.gate_from_dict({"gate": {"key": "B", "kind": "process", "processes": []}})

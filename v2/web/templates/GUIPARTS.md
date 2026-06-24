@@ -69,11 +69,11 @@ you like. The ids are not used by any logic — they're purely for navigation/re
 | guiPart41 | page breadcrumb / title |
 | guiPart42 | left column (flex-stacks the group panels: node · gates · states · actions · commands) |
 | guiPart43 | node info panel (identity + addressing) |
-| guiPart124 | gates panel (node detail) — numbered out-of-sequence to stay globally unique |
-| guiPart125 | states panel (node detail: per-node variant toggle + base-station States LEDs) |
+| guiPart124 | gates panel (node detail: config-driven health cells only) — numbered out-of-sequence to stay globally unique |
+| guiPart125 | states panel (node detail: per-node variant toggle + per-process pills; the base-station States LEDs stay only in the header bar) |
 | guiPart44 | per-node variant toggle (inside the states panel) |
 | guiPart45 | health gates (inside the gates panel) |
-| guiPart46 | metrics (inside the gates panel) |
+| guiPart46 | per-process pills + metric fields (inside the states panel) — the same metrics row as the grid card (guiPart27) |
 | guiPart47 | actions panel |
 | guiPart48 | an action group |
 | guiPart49 | sequence buttons |

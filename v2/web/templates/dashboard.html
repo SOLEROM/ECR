@@ -193,19 +193,29 @@ function applyNodeVariant(name, variant) {
   card.dataset.variant = variant;
   card.querySelectorAll(".varseg-node button").forEach(b =>
     b.classList.toggle("active", b.dataset.nvariant === variant));
+  // re-render the per-process LEDs for the new variant (e.g. serviceC appears in B),
+  // keeping the last-known up/down colors.
+  CCFlet.renderGateMetrics(card.querySelector("[data-metrics]"), card._ns || {}, variant);
 }
 
 let GATE_METAS = [];   // gate cell metas from /api/gates (key/label/kind)
 
-// Build the (empty) gate cells for every card from the gate registry metas.
+// Build the (empty) gate cells for every card from the gate registry metas, then seed the
+// per-process LEDs from config so they show up front (always visible, default down/red)
+// for every node — colored later by each card's status. card._ns keeps the last status so
+// a variant toggle can re-render the pills without losing their up/down colors.
 function buildGateCells() {
-  document.querySelectorAll(".card [data-gates]").forEach(box =>
-    CCFlet.renderGateCells(box, GATE_METAS));
+  document.querySelectorAll(".card").forEach(card => {
+    CCFlet.renderGateCells(card.querySelector("[data-gates]"), GATE_METAS);
+    CCFlet.renderGateMetrics(card.querySelector("[data-metrics]"),
+                             card._ns || {}, card.dataset.variant);
+  });
 }
 
 function applyStatus(ns) {
   const card = document.getElementById("card-" + ns.node);
   if (!card) return;
+  card._ns = ns;                                  // remember for variant re-render
   const worst = CCFlet.applyGates(card.querySelector("[data-gates]"), ns,
                                   card.querySelector("[data-metrics]"));
   card.className = "card ovr-" + worst + (card.querySelector(".nodesel").checked ? " sel" : "");
