@@ -48,7 +48,7 @@ you like. The ids are not used by any logic — they're purely for navigation/re
 | guiPart24 | node host (roleA) |
 | guiPart25 | health gates row (cells built client-side from /api/gates) |
 | guiPart26 | one gate cell (colored by the gate's named color) |
-| guiPart27 | metrics row (re-sourced from gate results: process pills + metric fields) |
+| guiPart27 | metrics row (per-process LEDs seeded from gate config — always visible, default down/red — recolored by gate results; plus metric fields) |
 | guiPart28 | a process up/down pill (rendered per process gate entry) |
 | guiPart30 | card footer |
 | guiPart31 | per-node variant toggle (A/B) |
@@ -73,7 +73,7 @@ you like. The ids are not used by any logic — they're purely for navigation/re
 | guiPart125 | states panel (node detail: per-node variant toggle + per-process pills; the base-station States LEDs stay only in the header bar) |
 | guiPart44 | per-node variant toggle (inside the states panel) |
 | guiPart45 | health gates (inside the gates panel) |
-| guiPart46 | per-process pills + metric fields (inside the states panel) — the same metrics row as the grid card (guiPart27) |
+| guiPart46 | per-process LEDs (seeded from gate config, always visible) + metric fields (inside the states panel) — the same metrics row as the grid card (guiPart27) |
 | guiPart47 | actions panel |
 | guiPart48 | an action group |
 | guiPart49 | sequence buttons |

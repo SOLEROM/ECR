@@ -50,8 +50,10 @@
               <button data-nvariant="B" class="{{ 'active' if fleet.node_variant(node)=='B' }}">B</button>
             </span></span>
         </div>
-        <!-- guiPart46 — per-process up/down pills + metric fields, re-sourced from the gate
-             results (the same row as the grid card). Built client-side by applyGates. -->
+        <!-- guiPart46 — per-process up/down LEDs + metric fields (the same row as the grid
+             card). The LEDs are seeded from the gate config (always visible, default
+             down/red) and recolored by this node's gate results; metric fields come from
+             the results. Built client-side (initGates seeds, applyGates recolors). -->
         <div class="metrics" id="metrics" data-guipart="46" data-metrics style="margin-top:12px"></div>
       </div>
     </div>
